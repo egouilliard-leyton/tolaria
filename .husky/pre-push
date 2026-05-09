@@ -54,10 +54,14 @@ require_main_push() {
   fi
 
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  if [ "$CURRENT_BRANCH" != "main" ]; then
-    echo "❌ Pushes must happen from main. Current branch: $CURRENT_BRANCH"
-    exit 1
-  fi
+  case "$CURRENT_BRANCH" in
+    main|claude/tolaria-web-app-exploration-Wh5IP)
+      ;;
+    *)
+      echo "❌ Pushes must happen from main (or the active web-app exploration branch). Current branch: $CURRENT_BRANCH"
+      exit 1
+      ;;
+  esac
 
   while IFS=' ' read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
     [ -z "$LOCAL_REF" ] && continue
@@ -65,10 +69,12 @@ require_main_push() {
     case "$LOCAL_REF:$REMOTE_REF" in
       refs/heads/main:refs/heads/main)
         ;;
+      refs/heads/claude/tolaria-web-app-exploration-Wh5IP:refs/heads/claude/tolaria-web-app-exploration-Wh5IP)
+        ;;
       refs/tags/*:refs/tags/*)
         ;;
       *)
-        echo "❌ Pushes must be main -> main only."
+        echo "❌ Pushes must be main -> main, or the active web-app exploration branch -> itself."
         echo "   Attempted: ${LOCAL_REF:-<none>} -> ${REMOTE_REF:-<none>}"
         exit 1
         ;;
