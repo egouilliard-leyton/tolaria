@@ -146,10 +146,21 @@ function captureRecoverableReactRootError(
 // React renders, then mount the tree. The web build also wraps `<App />`
 // in `<AuthProvider />` so silent refresh and the auth gate work; the
 // desktop build keeps the existing render shape (no provider).
+//
+// `WEB_SAAS_ENABLED` is a build-time global defined in `vite.config.ts`.
+// It defaults to `true` in the web build so a shipped bundle is live by
+// default, but a deployment can override it with `WEB_SAAS_ENABLED=false`
+// at build time to ship the bundle in a "coming soon" state. The desktop
+// build ignores the flag entirely.
 async function bootstrap(): Promise<void> {
   let withAuthProvider: (node: ReactNode) => ReactNode = (node) => node
 
   if (import.meta.env.VITE_TARGET === 'web') {
+    if (import.meta.env.WEB_SAAS_ENABLED !== true) {
+      renderFeatureDisabledSplash()
+      return
+    }
+
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/'
     const { HttpVaultAdapter } = await import('./lib/vault-adapter/http-adapter')
     setActiveVaultAdapter(new HttpVaultAdapter({ baseUrl: apiBaseUrl }))
@@ -174,6 +185,27 @@ async function bootstrap(): Promise<void> {
       </TooltipProvider>
     </StrictMode>,
   )
+}
+
+// Minimal pre-React splash for the "WEB_SAAS_ENABLED is false" case so a
+// deployment can ship the bundle with the feature dark. We avoid the
+// React tree on purpose: the adapter is never wired in this mode, so
+// `<App />` would crash on the first `getActiveVaultAdapter()` call.
+function renderFeatureDisabledSplash(): void {
+  const root = document.getElementById('root')
+  if (!root) return
+  root.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui,-apple-system,sans-serif;color:#475569;background:#f8fafc;">
+      <div style="max-width:420px;padding:32px;text-align:center;">
+        <h1 style="font-size:18px;font-weight:600;margin:0 0 8px 0;color:#0f172a;">Tolaria for the web is coming soon</h1>
+        <p style="font-size:14px;line-height:1.5;margin:0;">
+          This deployment ships with the SaaS surface disabled. Set
+          <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;font-size:12px;">WEB_SAAS_ENABLED=true</code>
+          at build time to enable it.
+        </p>
+      </div>
+    </div>
+  `
 }
 
 void bootstrap()
