@@ -139,9 +139,11 @@ tolaria/
 └── docs/ARCHITECTURE-WEB-SAAS.md   ← this file
 ```
 
-The desktop build still runs from `src/` + `src-tauri/`. The web build runs
-from `src/` + `apps/api`. The selector is the `VaultAdapter` factory in
-`src/lib/vault-adapter/index.ts`, chosen at app boot from `import.meta.env.MODE`.
+The desktop build still runs from `src/` + `src-tauri/` and emits to `dist/`.
+The web build runs from `src/` + `apps/api`, is produced via `pnpm build:web`
+(`VITE_TARGET=web`), and emits to `dist-web/`. The selector is the
+`VaultAdapter` factory in `src/lib/vault-adapter/index.ts`, chosen at app
+boot from `import.meta.env.VITE_TARGET`.
 
 ---
 

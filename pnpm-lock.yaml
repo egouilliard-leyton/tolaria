@@ -255,6 +255,9 @@ importers:
       jsdom:
         specifier: ^28.0.0
         version: 28.0.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -331,6 +334,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.689.0
+        version: 3.1045.0
       '@tolaria/api':
         specifier: workspace:*
         version: link:../api
@@ -350,6 +356,9 @@ importers:
       '@types/node':
         specifier: ^22.9.0
         version: 22.19.18
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
@@ -10362,7 +10371,7 @@ snapshots:
 
   '@types/pg@8.20.0':
     dependencies:
-      '@types/node': 22.19.18
+      '@types/node': 24.10.13
       pg-protocol: 1.13.0
       pg-types: 2.2.0
 

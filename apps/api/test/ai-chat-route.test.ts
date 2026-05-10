@@ -23,21 +23,32 @@ const dbState = {
   matchers: [] as Array<{ match: RegExp; rows: unknown[] }>,
 }
 
+function buildFakeClient() {
+  return {
+    query: async (text: string, params: ReadonlyArray<unknown> = []) => {
+      dbState.queries.push({ text, params })
+      // The rate-limit middleware UPSERTs a row before route handlers run;
+      // always allow with a generous remaining count so this suite stays
+      // focused on chat behavior. Dedicated bucket semantics live in
+      // test/rate-limit.test.ts.
+      if (/INSERT INTO rate_limit_buckets/.test(text)) {
+        return { rows: [{ allowed: true, remaining: 999 }] }
+      }
+      for (const m of dbState.matchers) {
+        if (m.match.test(text)) return { rows: m.rows }
+      }
+      return { rows: [] }
+    },
+    release: () => undefined,
+  }
+}
+
 vi.mock('../src/db.js', () => ({
+  pool: { connect: () => Promise.resolve(buildFakeClient()) },
   withTenant: async <T>(
     _ctx: unknown,
     fn: (client: { query: (text: string, params?: ReadonlyArray<unknown>) => Promise<unknown> }) => Promise<T>,
-  ): Promise<T> => {
-    return fn({
-      query: async (text: string, params: ReadonlyArray<unknown> = []) => {
-        dbState.queries.push({ text, params })
-        for (const m of dbState.matchers) {
-          if (m.match.test(text)) return { rows: m.rows }
-        }
-        return { rows: [] }
-      },
-    })
-  },
+  ): Promise<T> => fn(buildFakeClient()),
 }))
 
 const liteLlmStreamMock = vi.fn<
@@ -132,6 +143,14 @@ function parseEvents(payload: string): Array<{ event: string; data: unknown }> {
 
 function tenantMiddleware(): import('hono').MiddlewareHandler {
   return async (c, next) => {
+    // The /ai/chat route is mounted behind requireAuth in production; the
+    // rate-limit middleware also reads `c.get('user').sub`. Mirror both here.
+    c.set('user', {
+      sub: 'user-1',
+      sid: 'sub-1',
+      role: 'owner',
+      jti: 'jti-test',
+    })
     c.set('tenant', { subscriptionId: 'sub-1', userId: 'user-1' })
     await next()
   }
