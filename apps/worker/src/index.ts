@@ -1,6 +1,7 @@
 import PgBoss from 'pg-boss'
 import pino from 'pino'
 import { loadEnv } from './env.js'
+import { pool } from './lib/db.js'
 import { handleIndexNote, IndexNotePayload } from './handlers/index-note.js'
 import { handlePropagateRename } from './handlers/propagate-rename.js'
 import { handleR2Gc } from './handlers/r2-gc.js'
@@ -91,6 +92,13 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down worker')
     await boss.stop({ graceful: true, timeout: 10_000 })
+    // Drain the worker's pg pool after pg-boss releases its own clients so
+    // in-flight handlers cannot keep the process pinned past `boss.stop()`.
+    try {
+      await pool.end()
+    } catch (err) {
+      logger.error({ err }, 'failed to drain pg pool on shutdown')
+    }
     process.exit(0)
   }
   process.on('SIGINT', () => void shutdown('SIGINT'))

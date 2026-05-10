@@ -12,6 +12,37 @@ pnpm install
 pnpm --filter @tolaria/api dev
 ```
 
+### Local development (one-shot bootstrap)
+
+The `scripts/dev-bootstrap.sh` script in the repo root brings up the full
+local stack in one go:
+
+```bash
+./scripts/dev-bootstrap.sh
+```
+
+It does:
+
+1. `docker compose up -d` for `postgres`, `minio`, `litellm`, `authentik`,
+   and `authentik-redis`.
+2. Waits for the Postgres healthcheck to report ready.
+3. Creates the `tolaria_app` and `tolaria_migrator` roles if they don't
+   exist (idempotent).
+4. Runs `pnpm db:migrate` to apply every SQL migration under
+   `db/migrations/`.
+5. Runs `pnpm db:seed-platform` when `AUTHENTIK_ISSUER_URL` is set,
+   inserting (or updating) the platform-default Authentik OIDC provider
+   row in `sso_providers` so first-time login can succeed. The seeder
+   itself is idempotent: re-running with the same env is a no-op.
+
+After the script finishes, start the API and worker:
+
+```bash
+pnpm --filter @tolaria/api dev      # http://localhost:8787
+pnpm --filter @tolaria/worker dev   # pg-boss consumer
+pnpm dev:web                        # http://localhost:5201
+```
+
 The server listens on `API_HOST:API_PORT` (default `127.0.0.1:8787`) and
 exposes:
 

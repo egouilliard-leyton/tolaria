@@ -1750,7 +1750,10 @@ function App() {
           {noteListVisible && (
             <>
               <div className={`app__note-list${aiActivity.highlightElement === 'notelist' ? ' ai-highlight' : ''}`} style={{ width: layout.noteListWidth }}>
-                {effectiveSelection.kind === 'filter' && effectiveSelection.filter === 'pulse' ? (
+                {effectiveSelection.kind === 'filter' && effectiveSelection.filter === 'pulse' && import.meta.env.VITE_TARGET !== 'web' ? (
+                  /* PulseView renders Git commit history; the web build has
+                     no Git backend so the pulse filter falls back to the
+                     standard note list. */
                   <PulseView vaultPath={resolvedPath} onOpenNote={handlePulseOpenNote} sidebarCollapsed={!sidebarVisible} onExpandSidebar={() => handleSetViewMode('all')} locale={appLocale} />
                 ) : (
                   <NoteList entries={vault.entries} selection={effectiveSelection} selectedNote={activeTab?.entry ?? null} loading={isVaultContentLoading} noteListFilter={noteListFilter} onNoteListFilterChange={setNoteListFilter} inboxPeriod={inboxPeriod} modifiedFiles={vault.modifiedFiles} modifiedFilesError={vault.modifiedFilesError} getNoteStatus={vault.getNoteStatus} sidebarCollapsed={!sidebarVisible} onSelectNote={notes.handleSelectNote} onReplaceActiveTab={handleReplaceActiveTabWithQueuedDiff} onEnterNeighborhood={handleEnterNeighborhood} onCreateNote={notes.handleCreateNoteImmediate} onBulkOrganize={explicitOrganizationEnabled ? bulkActions.handleBulkOrganize : undefined} onBulkArchive={bulkActions.handleBulkArchive} onBulkDeletePermanently={deleteActions.handleBulkDeletePermanently} onUpdateTypeSort={notes.handleUpdateFrontmatter} onUpdateViewDefinition={handleUpdateViewDefinition} updateEntry={vault.updateEntry} onOpenInNewWindow={handleOpenEntryInNewWindow} onDiscardFile={handleDiscardFile} onOpenDeletedNote={handleOpenDeletedNote} allNotesNoteListProperties={vaultConfig.allNotes?.noteListProperties ?? null} onUpdateAllNotesNoteListProperties={handleUpdateAllNotesNoteListProperties} inboxNoteListProperties={vaultConfig.inbox?.noteListProperties ?? null} onUpdateInboxNoteListProperties={handleUpdateInboxNoteListProperties} views={vault.views} visibleNotesRef={visibleNotesRef} allNotesFileVisibility={allNotesFileVisibility} multiSelectionCommandRef={multiSelectionCommandRef} locale={appLocale} />
@@ -1830,8 +1833,15 @@ function App() {
             />
           </div>
         </div>
-        <UpdateBanner status={updateStatus} actions={updateActions} locale={appLocale} />
-        <RenameDetectedBanner renames={detectedRenames} onUpdate={handleUpdateWikilinks} onDismiss={handleDismissRenames} />
+        {/* UpdateBanner is wired to the Tauri auto-updater and
+            RenameDetectedBanner surfaces wiki-link breakage from on-disk
+            renames — both are desktop-only and have no web counterpart. */}
+        {import.meta.env.VITE_TARGET !== 'web' && (
+          <UpdateBanner status={updateStatus} actions={updateActions} locale={appLocale} />
+        )}
+        {import.meta.env.VITE_TARGET !== 'web' && (
+          <RenameDetectedBanner renames={detectedRenames} onUpdate={handleUpdateWikilinks} onDismiss={handleDismissRenames} />
+        )}
         {/* StatusBar surfaces Git/AutoGit/MCP/CLI agents — all desktop-only.
             The web build is hosted SaaS, so this entire bar is omitted. */}
         {import.meta.env.VITE_TARGET !== 'web' && (
@@ -1894,7 +1904,12 @@ function App() {
         <SettingsPanel open={dialogs.showSettings} settings={settings} aiAgentsStatus={aiAgentsStatus} locale={appLocale} systemLocale={systemLocale} isGitVault={isGitVault} onSave={saveSettings} onCopyMcpConfig={handleCopyMcpConfig} explicitOrganizationEnabled={explicitOrganizationEnabled} onSaveExplicitOrganization={handleSaveExplicitOrganization} onClose={dialogs.closeSettings} />
         <FeedbackDialog open={showFeedback} onClose={closeFeedback} />
         <McpSetupDialog open={showMcpSetupDialog} status={mcpStatus} busyAction={mcpDialogAction} manualConfigSnippet={mcpConfigSnippet} manualConfigLoading={mcpConfigLoading} manualConfigError={mcpConfigError} locale={appLocale} onClose={closeMcpSetupDialog} onConnect={handleConnectMcp} onCopyManualConfig={handleCopyMcpConfig} onDisconnect={handleDisconnectMcp} onLoadManualConfig={handleLoadMcpConfigSnippet} />
-        <CloneVaultModal key={dialogs.showCloneVault ? 'clone-open' : 'clone-closed'} open={dialogs.showCloneVault} onClose={dialogs.closeCloneVault} onVaultCloned={vaultSwitcher.handleVaultCloned} />
+        {/* CloneVaultModal clones a Git remote into a local vault path —
+            entirely desktop-only. The web build has no on-disk vaults
+            and surfaces vault creation through the API instead. */}
+        {import.meta.env.VITE_TARGET !== 'web' && (
+          <CloneVaultModal key={dialogs.showCloneVault ? 'clone-open' : 'clone-closed'} open={dialogs.showCloneVault} onClose={dialogs.closeCloneVault} onVaultCloned={vaultSwitcher.handleVaultCloned} />
+        )}
         {deleteActions.confirmDelete && (
           <ConfirmDeleteDialog
             open={true}
