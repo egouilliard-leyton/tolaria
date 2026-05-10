@@ -86,6 +86,12 @@ interface SettingsPanelProps {
   explicitOrganizationEnabled?: boolean
   onSaveExplicitOrganization?: (enabled: boolean) => void
   onClose: () => void
+  /**
+   * Optional render slot appended after the standard sections. The desktop
+   * shell uses this to inject a "Cloud" section with the migration dialog;
+   * the slot is left out of the web build via the usual VITE_TARGET gate.
+   */
+  extraSection?: ReactNode
 }
 
 interface SettingsDraft {
@@ -369,6 +375,7 @@ export function SettingsPanel({
   explicitOrganizationEnabled = true,
   onSaveExplicitOrganization,
   onClose,
+  extraSection,
 }: SettingsPanelProps) {
   if (!open) return null
 
@@ -384,6 +391,7 @@ export function SettingsPanel({
       explicitOrganizationEnabled={explicitOrganizationEnabled}
       onSaveExplicitOrganization={onSaveExplicitOrganization}
       onClose={onClose}
+      extraSection={extraSection}
     />
   )
 }
@@ -394,6 +402,7 @@ type SettingsPanelInnerProps = Omit<SettingsPanelProps, 'open' | 'explicitOrgani
   systemLocale: AppLocale
   isGitVault: boolean
   explicitOrganizationEnabled: boolean
+  extraSection?: ReactNode
 }
 
 function SettingsPanelInner({
@@ -406,6 +415,7 @@ function SettingsPanelInner({
   explicitOrganizationEnabled,
   onSaveExplicitOrganization,
   onClose,
+  extraSection,
 }: SettingsPanelInnerProps) {
   const [draft, setDraft] = useState(() => createSettingsDraft(settings, explicitOrganizationEnabled))
   const panelRef = useRef<HTMLDivElement>(null)
@@ -497,6 +507,7 @@ function SettingsPanelInner({
           setThemeMode={handleThemeModeChange}
           setHideGitignoredFiles={handleGitignoredVisibilityChange}
           setAllNotesFileVisibility={handleAllNotesFileVisibilityChange}
+          extraSection={extraSection}
         />
         <SettingsFooter onClose={onClose} onSave={handleSave} t={t} />
       </div>
@@ -536,6 +547,7 @@ interface SettingsBodyFromDraftProps {
   setThemeMode: (value: ThemeMode) => void
   setHideGitignoredFiles: (value: boolean) => void
   setAllNotesFileVisibility: (value: AllNotesFileVisibility) => void
+  extraSection?: ReactNode
 }
 
 function SettingsBodyFromDraft({
