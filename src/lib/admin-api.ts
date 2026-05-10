@@ -25,8 +25,10 @@ export interface SsoProvider {
   clientId: string
   scopes: string[]
   defaultRole: ProviderRole
-  jit: boolean
-  hasSecret: boolean
+  /** Server vocabulary from ADR-0117: whether just-in-time provisioning is on. */
+  jitProvisioning: boolean
+  /** Server vocabulary: whether `client_secret_enc` has bytes. Never carries the secret itself. */
+  clientSecretSet: boolean
 }
 
 export interface SsoProviderInput {
@@ -37,7 +39,7 @@ export interface SsoProviderInput {
   clientSecret: string
   scopes: string[]
   defaultRole: ProviderRole
-  jit: boolean
+  jitProvisioning: boolean
 }
 
 /**
