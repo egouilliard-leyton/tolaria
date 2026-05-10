@@ -180,7 +180,7 @@ describe('POST /admin/users/invite', () => {
     expect(res.status).toBe(409)
   })
 
-  it('inserts, writes audit, and returns 201 with `user`, `acceptInviteUrl`, `expiresInSeconds`', async () => {
+  it('inserts, writes audit, and returns 201 with `inviteUrl`, `member`, `expiresInSeconds`', async () => {
     const app = await buildApp('owner')
     // 1) existence check returns no rows
     fakeClient.responses.push({ rows: [] })
@@ -199,14 +199,15 @@ describe('POST /admin/users/invite', () => {
       body: JSON.stringify({ email: 'new@example.com', role: 'admin' }),
     })
     expect(res.status).toBe(201)
+    // Per Bundle A (gap G03): SPA reads `{ inviteUrl, member, expiresInSeconds }`.
     const body = (await res.json()) as {
-      user: { id: string; email: string; role: string }
-      acceptInviteUrl: string
+      member: { id: string; email: string; role: string }
+      inviteUrl: string
       expiresInSeconds: number
     }
-    expect(body.user.email).toBe('new@example.com')
-    expect(body.user.role).toBe('admin')
-    expect(body.acceptInviteUrl).toMatch(/\/invite\/accept\?token=/)
+    expect(body.member.email).toBe('new@example.com')
+    expect(body.member.role).toBe('admin')
+    expect(body.inviteUrl).toMatch(/\/invite\/accept\?token=/)
     expect(body.expiresInSeconds).toBe(60 * 60 * 24 * 7)
 
     const audit = fakeClient.calls.find((c) => c.text.includes('INSERT INTO audit_log'))
