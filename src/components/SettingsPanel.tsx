@@ -562,9 +562,11 @@ function SettingsBodyFromDraft({
   setThemeMode,
   setHideGitignoredFiles,
   setAllNotesFileVisibility,
+  extraSection,
 }: SettingsBodyFromDraftProps) {
   return (
     <SettingsBody
+      extraSection={extraSection}
       t={t}
       locale={locale}
       systemLocale={systemLocale}
@@ -613,7 +615,7 @@ function SettingsBodyFromDraft({
   )
 }
 
-function SettingsBody(props: SettingsBodyProps) {
+function SettingsBody(props: SettingsBodyProps & { extraSection?: ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <SettingsBodyNav t={props.t} />
@@ -621,6 +623,7 @@ function SettingsBody(props: SettingsBodyProps) {
         <SettingsSyncAndAppearanceSections {...props} />
         <SettingsContentSections {...props} />
         <SettingsAgentWorkflowSections {...props} />
+        {props.extraSection}
       </div>
     </div>
   )
