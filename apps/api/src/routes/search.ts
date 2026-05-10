@@ -9,6 +9,7 @@ import { Hono } from 'hono'
 import { withTenant } from '../db.js'
 import { SearchQuery, VaultIdRouteParam } from '../lib/schemas.js'
 import { readParams, readQuery } from '../lib/validate.js'
+import { rateLimit, SEARCH_RATE_LIMIT } from '../middleware/rate-limit.js'
 import { assertVaultExists } from './vaults.js'
 
 // Wire shape: snake_case per the SPA's HttpVaultAdapter.search (see
@@ -28,6 +29,14 @@ interface SearchResponse {
 }
 
 export const search = new Hono()
+
+// Per-user token-bucket. The full-text path can be expensive on large
+// vaults, and the prefix mode is hit on every keystroke from the quick-open
+// palette — both warrant a generous-but-finite budget.
+search.use(
+  '/vaults/:vaultId/search',
+  rateLimit({ bucket: 'search', scope: 'user', ...SEARCH_RATE_LIMIT }),
+)
 
 search.get('/vaults/:vaultId/search', async (c) => {
   const { vaultId } = readParams(c, VaultIdRouteParam)

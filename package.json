@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "VITE_TARGET=web vite --port 5201",
     "build": "tsc -b && vite build",
+    "build:web": "VITE_TARGET=web vite build --outDir dist-web",
     "agent-docs": "node scripts/build-agent-docs.mjs",
     "bundle-mcp": "node scripts/bundle-mcp-server.mjs",
     "docs:dev": "vitepress dev site --host 127.0.0.1",

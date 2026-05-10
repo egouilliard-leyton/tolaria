@@ -13,10 +13,17 @@
 // trivially redirectable when this route lands.
 
 import { Hono } from 'hono'
+import { AI_RATE_LIMIT, rateLimit } from '../middleware/rate-limit.js'
 
 export const aiAgent = new Hono()
 
-aiAgent.post('/ai/agent/run', (c) =>
+// Even though the route currently 501s, attach the rate limiter now so the
+// budget is in place when the real implementation lands. Per-user, same
+// budget as /ai/chat.
+aiAgent.post(
+  '/ai/agent/run',
+  rateLimit({ bucket: 'ai', scope: 'user', ...AI_RATE_LIMIT }),
+  (c) =>
   c.json(
     {
       error: {

@@ -142,16 +142,38 @@ function captureRecoverableReactRootError(
   captureReactRootError(error, { componentStack })
 }
 
-createRoot(document.getElementById('root')!, {
-  onCaughtError: captureRecoverableReactRootError,
-  onUncaughtError: captureReactRootError,
-  onRecoverableError: captureRecoverableReactRootError,
-}).render(
-  <StrictMode>
-    <TooltipProvider>
-      <LinuxTitlebar />
-      <App />
-      <FrontendReadyMarker />
-    </TooltipProvider>
-  </StrictMode>,
-)
+// Boot order: pick the right VaultAdapter for the build target *before*
+// React renders, then mount the tree. The web build also wraps `<App />`
+// in `<AuthProvider />` so silent refresh and the auth gate work; the
+// desktop build keeps the existing render shape (no provider).
+async function bootstrap(): Promise<void> {
+  let withAuthProvider: (node: ReactNode) => ReactNode = (node) => node
+
+  if (import.meta.env.VITE_TARGET === 'web') {
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/'
+    const { HttpVaultAdapter } = await import('./lib/vault-adapter/http-adapter')
+    setActiveVaultAdapter(new HttpVaultAdapter({ baseUrl: apiBaseUrl }))
+
+    const { AuthProvider } = await import('./lib/auth/AuthProvider')
+    withAuthProvider = (node) => <AuthProvider apiBaseUrl={apiBaseUrl}>{node}</AuthProvider>
+  } else {
+    const { TauriVaultAdapter } = await import('./lib/vault-adapter/tauri-adapter')
+    setActiveVaultAdapter(new TauriVaultAdapter())
+  }
+
+  createRoot(document.getElementById('root')!, {
+    onCaughtError: captureRecoverableReactRootError,
+    onUncaughtError: captureReactRootError,
+    onRecoverableError: captureRecoverableReactRootError,
+  }).render(
+    <StrictMode>
+      <TooltipProvider>
+        <LinuxTitlebar />
+        {withAuthProvider(<App />)}
+        <FrontendReadyMarker />
+      </TooltipProvider>
+    </StrictMode>,
+  )
+}
+
+void bootstrap()

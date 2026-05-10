@@ -63,8 +63,18 @@ ai.get('/ai/models', async (c) => {
   })
 })
 
+// Per-user token-bucket on the streaming chat endpoint. Tool-result POSTs
+// are exempt because they're driven 1:1 by an active /ai/chat stream — the
+// upstream model already paced them, and counting them again would deny
+// long agent loops. /ai/models is a cheap read; no limit needed.
+const aiUserRateLimit = rateLimit({
+  bucket: 'ai',
+  scope: 'user',
+  ...AI_RATE_LIMIT,
+})
+
 // ── POST /ai/chat ─────────────────────────────────────────────────────────
-ai.post('/ai/chat', async (c) => {
+ai.post('/ai/chat', aiUserRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const body = await readJson(c, AiStreamRequestSchema)
 
