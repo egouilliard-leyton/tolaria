@@ -5,6 +5,7 @@ import { handleIndexNote, IndexNotePayload } from './handlers/index-note.js'
 import { handlePropagateRename } from './handlers/propagate-rename.js'
 import { handleR2Gc } from './handlers/r2-gc.js'
 import { handleAiToolRun } from './handlers/ai-tool-run.js'
+import { handleRebuildVaultIndex } from './handlers/rebuild-vault-index.js'
 
 const env = loadEnv()
 const logger = pino({ level: env.LOG_LEVEL, base: { app: 'tolaria-worker' } })
@@ -55,8 +56,21 @@ async function main(): Promise<void> {
     await handleAiToolRun(job)
   })
 
+  await boss.work<unknown>('rebuild-vault-index', workOptions, async ([job]) => {
+    if (!job) return
+    await handleRebuildVaultIndex(job)
+  })
+
   logger.info(
-    { queues: ['index-note', 'propagate-rename', 'r2-gc', 'ai-tool-run'] },
+    {
+      queues: [
+        'index-note',
+        'propagate-rename',
+        'r2-gc',
+        'ai-tool-run',
+        'rebuild-vault-index',
+      ],
+    },
     'worker handlers registered',
   )
 

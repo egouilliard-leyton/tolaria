@@ -71,6 +71,7 @@ rename.post('/vaults/:vaultId/rename', async (c) => {
     vaultId,
     fromPath: body.from_path,
     toPath: body.to_path,
+    affectedNoteIds: result.affectedNoteIds,
   }).catch((err) => logger.error({ err }, 'propagate-rename enqueue failed'))
 
   // Translate to the snake_case wire shape the SPA expects.

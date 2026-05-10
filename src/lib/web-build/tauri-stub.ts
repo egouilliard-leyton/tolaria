@@ -120,3 +120,13 @@ export const cursorPosition = () =>
 
 // Convert helpers (`@tauri-apps/api/event` exports `convertFileSrc`).
 export const convertFileSrc = (path: string) => path
+
+// Tauri's IPC `Channel` is used as `new Channel<T>()`. The web build
+// throws if you try to actually send anything through it.
+export class Channel<T = unknown> {
+  id = -1
+  onmessage: ((message: T) => void) | undefined = undefined
+  toJSON(): string {
+    return '__CHANNEL_STUB__'
+  }
+}

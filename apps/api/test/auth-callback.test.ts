@@ -252,6 +252,13 @@ function fakeQuery(text: string, params: unknown[] = []): { rows: unknown[] } {
     return { rows: [] }
   }
 
+  // The rate-limit middleware UPSERTs a row per request. Always allow with
+  // a high `remaining` so the auth-flow tests are insulated from the bucket
+  // semantics (those have their own dedicated suite in test/rate-limit.test.ts).
+  if (t.startsWith('INSERT INTO rate_limit_buckets')) {
+    return { rows: [{ allowed: true, remaining: 999 }] }
+  }
+
   throw new Error(`fakeQuery: unrecognized SQL: ${t.slice(0, 100)}`)
 }
 
