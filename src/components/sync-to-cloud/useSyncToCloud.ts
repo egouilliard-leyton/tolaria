@@ -162,16 +162,8 @@ export function useSyncToCloud(options: UseSyncToCloudOptions = {}) {
       notes: SyncableNote[],
       attachments: SyncableAttachment[] = [],
     ): Promise<SyncResult> => {
-      // eslint-disable-next-line no-console
-      console.log('[sync-to-cloud] runSync entered, destination=', destination?.id)
-      if (!destination) {
-        // eslint-disable-next-line no-console
-        console.warn('[sync-to-cloud] runSync called with no destination')
-        return { ok: false, error: 'No destination vault selected.' }
-      }
+      if (!destination) return { ok: false, error: 'No destination vault selected.' }
       setBusy(true)
-      // eslint-disable-next-line no-console
-      console.log('[sync-to-cloud] runSync looping over', notes.length, 'notes')
       const totals = notes.length + attachments.length
       setProgress({
         total: totals,
@@ -187,11 +179,7 @@ export function useSyncToCloud(options: UseSyncToCloudOptions = {}) {
       for (const note of notes) {
         setProgress((prev) => ({ ...prev, current: note.title }))
         try {
-          // eslint-disable-next-line no-console
-          console.log('[sync-to-cloud] uploading', note.title)
           await uploadNote(adapter, destination.id, note)
-          // eslint-disable-next-line no-console
-          console.log('[sync-to-cloud] uploaded', note.title)
           completed += 1
         } catch (err) {
           failed += 1

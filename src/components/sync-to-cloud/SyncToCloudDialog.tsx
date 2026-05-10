@@ -17,7 +17,7 @@
 // component itself never imports `@tauri-apps/api`, so the web build
 // happily tree-shakes the desktop bits.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../ui/button'
 import {
@@ -339,43 +339,33 @@ interface ProgressStepProps {
 }
 
 function ProgressStep({ vaultPath, notesProvider, runSync, progress }: ProgressStepProps) {
-  const [started, setStarted] = useState(false)
+  // `useRef` guards against React StrictMode's intentional double-mount in
+  // dev. Without it, the cleanup of the first effect would mark the async
+  // chain as cancelled and we'd never reach the runSync call on the second
+  // mount (the providers are typically vi.fn() shared across both mounts).
+  const startedRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (started) return
-    setStarted(true)
-    let cancelled = false
+    if (startedRef.current) return
+    startedRef.current = true
     void (async () => {
       try {
-        // eslint-disable-next-line no-console
-        console.log('[sync-to-cloud] effect: calling notesProvider')
         const { notes, attachments } = await notesProvider()
-        // eslint-disable-next-line no-console
-        console.log('[sync-to-cloud] effect: got notes', notes.length, 'typeof runSync=', typeof runSync)
-        if (cancelled) return
-        // eslint-disable-next-line no-console
-        console.log('[sync-to-cloud] about to call runSync')
         const result = await runSync(vaultPath, notes, attachments ?? [])
-        // eslint-disable-next-line no-console
-        console.log('[sync-to-cloud] effect: runSync returned', result)
-        if (!result.ok && result.error && cancelled === false) {
+        if (!result.ok && result.error) {
           // Errors mid-sync are recorded in `progress.errors` already; the
           // top-level message goes to a separate region for visibility.
           setLoadError(result.error)
         }
       } catch (err) {
-        if (cancelled) return
         const message = err instanceof Error ? err.message : 'Could not load notes.'
         setLoadError(message)
       }
     })()
-    return () => {
-      cancelled = true
-    }
-    // notesProvider/runSync are stable enough — gate on `started` to run once.
+    // notesProvider/runSync are stable enough — gate on `startedRef` to run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started])
+  }, [])
 
   const percent = progress.total === 0 ? 0 : Math.round((progress.completed / progress.total) * 100)
 
