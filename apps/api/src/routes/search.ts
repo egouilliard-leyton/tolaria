@@ -11,8 +11,10 @@ import { SearchQuery, VaultIdRouteParam } from '../lib/schemas.js'
 import { readParams, readQuery } from '../lib/validate.js'
 import { assertVaultExists } from './vaults.js'
 
+// Wire shape: snake_case per the SPA's HttpVaultAdapter.search (see
+// SearchResultDto + SearchResponseDto in src/lib/vault-adapter/http-adapter.ts).
 interface SearchResult {
-  noteId: string
+  note_id: string
   title: string
   snippet: string
   score: number
@@ -22,7 +24,7 @@ interface SearchResponse {
   results: SearchResult[]
   query: string
   mode: 'full' | 'prefix'
-  elapsedMs: number
+  elapsed_ms: number
 }
 
 export const search = new Hono()
@@ -45,7 +47,7 @@ search.get('/vaults/:vaultId/search', async (c) => {
     results: rows,
     query: q.q,
     mode: q.mode,
-    elapsedMs: Date.now() - start,
+    elapsed_ms: Date.now() - start,
   }
   return c.json(response)
 })
@@ -100,7 +102,7 @@ async function runFull(
     [vaultId, q, limit],
   )
   return rows.map((r) => ({
-    noteId: r.note_id,
+    note_id: r.note_id,
     title: r.title,
     snippet: r.snippet,
     score: typeof r.score === 'number' ? r.score : Number(r.score),
@@ -142,7 +144,7 @@ async function runPrefix(
     [vaultId, q, limit],
   )
   return rows.map((r) => ({
-    noteId: r.note_id,
+    note_id: r.note_id,
     title: r.title,
     snippet: makeSnippet(r.body_md ?? '', q),
     score: typeof r.score === 'number' ? r.score : Number(r.score),

@@ -45,19 +45,42 @@ export interface CallbackResult {
  * Build (or fetch from a tiny in-process cache) an `openid-client`
  * Configuration. Discovery is network-bound, so we cache per-issuer and
  * fall through cleanly if the discovery document is stale.
+ *
+ * The cache has a 10-minute TTL so that an Authentik (or other IdP) key
+ * rotation does not silently break ID-token verification until the process
+ * restarts — see ADR-0117 §Consequences and `docs/web-saas/verification-2026-05-09.md`
+ * defect #7. We evict on TTL expiry only; failed re-fetches do not poison
+ * the cache (the next caller will retry from scratch), and a stale-but-
+ * still-within-TTL entry is preferred to a thundering herd of discoveries.
  */
-const configCache = new Map<string, Promise<oidc.Configuration>>()
+const DISCOVERY_TTL_MS = 10 * 60 * 1000
+
+interface CacheEntry {
+  config: Promise<oidc.Configuration>
+  fetchedAt: number
+}
+
+const configCache = new Map<string, CacheEntry>()
 
 export async function getProviderConfig(input: ProviderConfigInput): Promise<oidc.Configuration> {
   const cacheKey = `${input.issuerUrl}|${input.clientId}`
   const cached = configCache.get(cacheKey)
-  if (cached) return cached
+  if (cached && Date.now() - cached.fetchedAt <= DISCOVERY_TTL_MS) {
+    return cached.config
+  }
+  // Either no entry, or the existing one has aged out. Either way, refetch.
+  // We hold off on evicting the stale entry until the new fetch resolves,
+  // so a discovery failure leaves the previous (working) entry in place.
   const p = discover(input).catch((err) => {
-    // Don't poison the cache with a failed discovery — the next call retries.
-    configCache.delete(cacheKey)
+    // Don't poison the cache with a failed discovery — drop only the in-flight
+    // entry we just inserted. If a stale entry was present we leave it alone.
+    const current = configCache.get(cacheKey)
+    if (current && current.config === p) {
+      configCache.delete(cacheKey)
+    }
     throw err
   })
-  configCache.set(cacheKey, p)
+  configCache.set(cacheKey, { config: p, fetchedAt: Date.now() })
   return p
 }
 
@@ -196,11 +219,24 @@ export function _setProviderConfigForTests(
   config: oidc.Configuration,
 ): void {
   const key = `${input.issuerUrl}|${input.clientId}`
-  configCache.set(key, Promise.resolve(config))
+  configCache.set(key, { config: Promise.resolve(config), fetchedAt: Date.now() })
 }
 
 export function _clearProviderConfigCacheForTests(): void {
   configCache.clear()
+}
+
+/**
+ * Test-only: drop a single cache entry (or all entries when `input` is
+ * omitted) so a TTL test can simulate the post-eviction refetch without
+ * waiting wall-clock minutes. Production code paths must NOT call this.
+ */
+export function _invalidateDiscoveryCache(input?: ProviderConfigInput): void {
+  if (!input) {
+    configCache.clear()
+    return
+  }
+  configCache.delete(`${input.issuerUrl}|${input.clientId}`)
 }
 
 // Auth flow note: this module is the OIDC half of plan §6 "Web auth flow".

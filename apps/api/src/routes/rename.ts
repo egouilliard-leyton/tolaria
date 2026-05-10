@@ -23,6 +23,7 @@ import { Hono } from 'hono'
 import type { PgClient } from '../db.js'
 import { withTenant } from '../db.js'
 import { enqueue } from '../jobs/index.js'
+import { writeAudit } from '../lib/audit.js'
 import { Conflict, NotFound } from '../lib/errors.js'
 import { logger } from '../lib/logger.js'
 import { RenameBody, VaultIdRouteParam } from '../lib/schemas.js'
@@ -30,6 +31,9 @@ import { slugify } from '../lib/slug.js'
 import { readJson, readParams } from '../lib/validate.js'
 import { assertVaultExists } from './vaults.js'
 
+// Internal result shape — kept camelCase so the SQL implementation reads
+// naturally. The route handler translates to snake_case at the wire boundary
+// before responding (see RenameResultDto in the SPA's http-adapter.ts).
 interface RenameResult {
   affectedNoteIds: string[]
   updatedLinkCount: number
@@ -45,7 +49,18 @@ rename.post('/vaults/:vaultId/rename', async (c) => {
 
   const result = await withTenant(tenant, async (client) => {
     await assertVaultExists(client, vaultId)
-    return runRename(client, vaultId, body.fromPath, body.toPath)
+    const renamed = await runRename(client, vaultId, body.from_path, body.to_path)
+    // ADR-0115 §Consequences: rename.run is audited inside the same
+    // transaction as the slug + body rewrites so the audit row commits or
+    // rolls back atomically with the rename.
+    await writeAudit(client, tenant, 'rename.run', vaultId, {
+      vault_id: vaultId,
+      from_path: body.from_path,
+      to_path: body.to_path,
+      affected_note_ids: renamed.affectedNoteIds,
+      updated_link_count: renamed.updatedLinkCount,
+    })
+    return renamed
   })
 
   // Best-effort: enqueue a propagation job so the worker can rebuild
@@ -54,11 +69,15 @@ rename.post('/vaults/:vaultId/rename', async (c) => {
   await enqueue('propagate-rename', {
     subscriptionId: user.sid,
     vaultId,
-    fromPath: body.fromPath,
-    toPath: body.toPath,
+    fromPath: body.from_path,
+    toPath: body.to_path,
   }).catch((err) => logger.error({ err }, 'propagate-rename enqueue failed'))
 
-  return c.json(result)
+  // Translate to the snake_case wire shape the SPA expects.
+  return c.json({
+    affected_note_ids: result.affectedNoteIds,
+    updated_link_count: result.updatedLinkCount,
+  })
 })
 
 async function runRename(

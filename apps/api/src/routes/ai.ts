@@ -70,14 +70,14 @@ ai.post('/ai/chat', async (c) => {
   const model = await resolveModel(tenant, body.model)
 
   const runId = await startAiRun(tenant, {
-    vaultId: body.vaultId,
+    vaultId: body.vault_id,
     model: model.name,
   })
 
   await writeAudit(tenant, {
     action: 'ai.run.start',
     target: runId,
-    meta: { model: model.name, vaultId: body.vaultId },
+    meta: { model: model.name, vaultId: body.vault_id },
   })
 
   const upstream = new AbortController()
@@ -108,19 +108,19 @@ ai.post('/ai/chat/tool-result', async (c) => {
   const ownerCheck = await withTenant(tenant, async (client) => {
     const { rows } = await client.query<{ id: string }>(
       `SELECT id FROM ai_runs WHERE id = $1`,
-      [body.runId],
+      [body.run_id],
     )
     return rows.length > 0
   })
   if (!ownerCheck) throw Forbidden('run_not_found')
 
-  const queue = runQueues.get(body.runId)
+  const queue = runQueues.get(body.run_id)
   if (!queue) {
     // The run already ended (or was never on this server). Tell the SPA so
     // it can stop retrying; this is not an audit-worthy event.
     throw InvalidInput('run_not_active')
   }
-  queue.push({ type: 'tool_result', id: body.toolCallId, result: body.result })
+  queue.push({ type: 'tool_result', id: body.tool_call_id, result: body.result })
   return c.json({ ok: true })
 })
 
@@ -189,9 +189,9 @@ async function* streamForRoute(args: RouteStreamArgs): AsyncIterable<AiStreamEve
 
     yield {
       type: 'usage',
-      promptTokens,
-      completionTokens,
-      creditsRemaining: remaining,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      credits_remaining: remaining,
     }
     yield { type: 'done' }
   } catch (err) {

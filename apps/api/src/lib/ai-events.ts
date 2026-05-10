@@ -1,10 +1,12 @@
 // Server-side mirror of the `AiStreamEvent` discriminated union the SPA
-// expects (see `src/lib/vault-adapter/types.ts`). We keep a copy here to
-// avoid pulling the frontend module graph into the Node API. If the wire
-// format ever changes, both files MUST be updated in lockstep.
+// expects to read off the SSE wire. The SPA's `HttpVaultAdapter`
+// (`mapSseToAiEvent` in `src/lib/vault-adapter/http-adapter.ts`) parses each
+// `data:` JSON payload by `event.type` and reads snake_case fields
+// (`prompt_tokens`, `completion_tokens`, `credits_remaining`). Keep the
+// shapes here in lockstep with that consumer.
 //
-// The `Schema` export is a Zod parser for the request body the SPA sends to
-// `POST /ai/chat` — it's the inverse of the SPA's `AiStreamRequest`.
+// `AiStreamRequestSchema` is the inverse of the SPA's `AiStreamRequest` and
+// is the body the SPA POSTs to `/ai/chat`. The wire is snake_case.
 
 import { z } from 'zod'
 
@@ -14,9 +16,9 @@ export type AiStreamEvent =
   | { type: 'tool_result'; id: string; result: unknown }
   | {
       type: 'usage'
-      promptTokens: number
-      completionTokens: number
-      creditsRemaining: number
+      prompt_tokens: number
+      completion_tokens: number
+      credits_remaining: number
     }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -33,7 +35,7 @@ export const AiToolSchema = z.object({
 })
 
 export const AiStreamRequestSchema = z.object({
-  vaultId: z.string().uuid(),
+  vault_id: z.string().uuid(),
   model: z.string().min(1),
   messages: z.array(AiMessageSchema).min(1),
   tools: z.array(AiToolSchema).optional(),
@@ -42,8 +44,8 @@ export const AiStreamRequestSchema = z.object({
 export type AiStreamRequest = z.infer<typeof AiStreamRequestSchema>
 
 export const AiToolResultSchema = z.object({
-  runId: z.string().uuid(),
-  toolCallId: z.string().min(1),
+  run_id: z.string().uuid(),
+  tool_call_id: z.string().min(1),
   result: z.unknown(),
 })
 

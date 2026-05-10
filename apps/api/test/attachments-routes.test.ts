@@ -201,14 +201,19 @@ describe('POST /vaults/:vaultId/attachments', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
       id: string
-      putUrl: string
+      put_url: string
       key: string
-      headers: Record<string, string>
+      required_headers: Record<string, string>
+      sha256_header: string
+      size_limit: number
+      expires_in: number
     }
     expect(body.id).toBe(ATTACH)
-    expect(body.putUrl).toBe('https://r2.example/put?sig=put')
+    expect(body.put_url).toBe('https://r2.example/put?sig=put')
     expect(body.key).toBe(`s/${SUB}/v/${VAULT}/a/${ATTACH}/photo.png`)
-    expect(body.headers['x-amz-meta-sha256']).toBe('a'.repeat(64))
+    expect(body.required_headers['x-amz-meta-sha256']).toBe('a'.repeat(64))
+    expect(body.sha256_header).toBe('a'.repeat(64))
+    expect(body.expires_in).toBe(300)
 
     const r2 = await getR2Mock()
     expect(r2.presignPut).toHaveBeenCalledTimes(1)
@@ -286,16 +291,16 @@ describe('POST /attachments/:id/verify', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as {
       id: string
-      vaultId: string
+      vault_id: string
       url: string
       mime: string
-      sizeBytes: number
+      size_bytes: number
       sha256: string
     }
     expect(body.id).toBe(ATTACH)
-    expect(body.vaultId).toBe(VAULT)
+    expect(body.vault_id).toBe(VAULT)
     expect(body.url).toBe('https://r2.example/get?sig=get')
-    expect(body.sizeBytes).toBe(1024)
+    expect(body.size_bytes).toBe(1024)
 
     const r2 = await getR2Mock()
     expect(r2.headObject).toHaveBeenCalledWith('some/key')
@@ -432,7 +437,7 @@ describe('DELETE /attachments/:id', () => {
 
 // ── note_id reference ─────────────────────────────────────────────────────
 
-describe('POST /vaults/:vaultId/attachments with noteId', () => {
+describe('POST /vaults/:vaultId/attachments with note_id', () => {
   it('verifies the note exists in the same vault before insert', async () => {
     const db = await getDbMock()
     // 1. vault
@@ -449,7 +454,7 @@ describe('POST /vaults/:vaultId/attachments with noteId', () => {
         size: 1024,
         sha256: 'a'.repeat(64),
         filename: 'photo.png',
-        noteId: NOTE,
+        note_id: NOTE,
       }),
     })
     expect(res.status).toBe(404)

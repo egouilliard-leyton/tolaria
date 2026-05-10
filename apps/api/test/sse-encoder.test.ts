@@ -35,11 +35,11 @@ describe('encodeSseEvent', () => {
     expect(
       encodeSseEvent({
         type: 'usage',
-        promptTokens: 1,
-        completionTokens: 2,
-        creditsRemaining: 999,
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        credits_remaining: 999,
       }),
-    ).toContain('"creditsRemaining":999')
+    ).toContain('"credits_remaining":999')
   })
 })
 

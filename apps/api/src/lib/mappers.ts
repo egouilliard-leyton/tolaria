@@ -1,47 +1,47 @@
-// Map snake_case database rows into the camelCase JSON contract defined in
-// `src/lib/vault-adapter/types.ts`. Keep the conversion in one place so route
-// handlers only have to call a single function.
+// Map snake_case database rows into the snake_case JSON contract the SPA's
+// HttpVaultAdapter expects (see `src/lib/vault-adapter/http-adapter.ts`).
+//
+// The wire format on `/vaults/*`, `/folders/*`, `/notes/*`, `/search`,
+// `/rename`, `/attachments/*`, and `/ai/chat` is **snake_case**. The SPA is
+// the single boundary that translates between the snake_case wire and its
+// internal camelCase `VaultAdapter` types — see plan §6.
 //
 // Timestamps come back from `pg` as `Date` instances (per the default node-pg
 // type parser); we always emit ISO-8601 strings so the API is stable
 // regardless of pool config.
-//
-// The shapes below are intentional copies of the VaultAdapter contract types
-// in `src/lib/vault-adapter/types.ts`. We don't import from outside this
-// package's rootDir, but the field names and types must stay in lockstep.
 
-export interface Vault {
+export interface VaultDto {
   id: string
   slug: string
   name: string
-  createdAt: string
+  created_at: string
   settings: Record<string, unknown>
 }
 
-export interface Folder {
+export interface FolderDto {
   id: string
-  vaultId: string
-  parentId: string | null
+  vault_id: string
+  parent_id: string | null
   name: string
   position: number
-  updatedAt: string
+  updated_at: string
 }
 
-export interface NoteSummary {
+export interface NoteSummaryDto {
   id: string
-  vaultId: string
-  folderId: string | null
+  vault_id: string
+  folder_id: string | null
   slug: string
   title: string
-  modifiedAt: string
-  wordCount: number
+  modified_at: string
+  word_count: number
 }
 
-export interface Note extends NoteSummary {
-  bodyMd: string
+export interface NoteDto extends NoteSummaryDto {
+  body_md: string
   frontmatter: Record<string, unknown>
   version: number
-  createdAt: string
+  created_at: string
 }
 
 const iso = (v: Date | string): string =>
@@ -55,12 +55,12 @@ interface VaultRow {
   settings: Record<string, unknown>
 }
 
-export function toVault(row: VaultRow): Vault {
+export function toVault(row: VaultRow): VaultDto {
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    createdAt: iso(row.created_at),
+    created_at: iso(row.created_at),
     settings: row.settings ?? {},
   }
 }
@@ -74,14 +74,14 @@ interface FolderRow {
   updated_at: Date | string
 }
 
-export function toFolder(row: FolderRow): Folder {
+export function toFolder(row: FolderRow): FolderDto {
   return {
     id: row.id,
-    vaultId: row.vault_id,
-    parentId: row.parent_id,
+    vault_id: row.vault_id,
+    parent_id: row.parent_id,
     name: row.name,
     position: row.position,
-    updatedAt: iso(row.updated_at),
+    updated_at: iso(row.updated_at),
   }
 }
 
@@ -95,15 +95,15 @@ interface NoteSummaryRow {
   word_count: number
 }
 
-export function toNoteSummary(row: NoteSummaryRow): NoteSummary {
+export function toNoteSummary(row: NoteSummaryRow): NoteSummaryDto {
   return {
     id: row.id,
-    vaultId: row.vault_id,
-    folderId: row.folder_id,
+    vault_id: row.vault_id,
+    folder_id: row.folder_id,
     slug: row.slug,
     title: row.title,
-    modifiedAt: iso(row.modified_at),
-    wordCount: row.word_count,
+    modified_at: iso(row.modified_at),
+    word_count: row.word_count,
   }
 }
 
@@ -114,13 +114,13 @@ interface NoteRow extends NoteSummaryRow {
   created_at: Date | string
 }
 
-export function toNote(row: NoteRow): Note {
+export function toNote(row: NoteRow): NoteDto {
   return {
     ...toNoteSummary(row),
-    bodyMd: row.body_md,
+    body_md: row.body_md,
     frontmatter: row.frontmatter ?? {},
     version: row.version,
-    createdAt: iso(row.created_at),
+    created_at: iso(row.created_at),
   }
 }
 

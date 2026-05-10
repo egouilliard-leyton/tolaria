@@ -32,7 +32,7 @@ notes.get('/vaults/:vaultId/notes', async (c) => {
 
   const limit = q.limit
   const cursor = q.cursor ? decodeCursor(q.cursor) : null
-  const folderFilter = parseFolderFilter(q.folderId)
+  const folderFilter = parseFolderFilter(q.folder_id)
 
   const rows = await withTenant(tenant, async (client) => {
     await assertVaultExists(client, vaultId)
@@ -70,7 +70,9 @@ notes.get('/vaults/:vaultId/notes', async (c) => {
     })
     rows.length = limit
   }
-  return c.json({ items: rows.map(toNoteSummary), nextCursor })
+  // Snake_case wire shape: the SPA expects `next_cursor` (see PageDto in
+  // src/lib/vault-adapter/http-adapter.ts).
+  return c.json({ items: rows.map(toNoteSummary), next_cursor: nextCursor })
 })
 
 notes.post('/vaults/:vaultId/notes', async (c) => {
@@ -80,12 +82,12 @@ notes.post('/vaults/:vaultId/notes', async (c) => {
   const user = c.get('user')
 
   const baseSlug = slugify(body.title)
-  const bodyMd = body.bodyMd ?? ''
+  const bodyMd = body.body_md ?? ''
   const frontmatter = body.frontmatter ?? {}
 
   const note = await withTenant(tenant, async (client) => {
     await assertVaultExists(client, vaultId)
-    if (body.folderId) await assertFolderInVault(client, body.folderId, vaultId)
+    if (body.folder_id) await assertFolderInVault(client, body.folder_id, vaultId)
 
     const slug = await ensureUniqueSlug(baseSlug, async (candidate) => {
       const r = await client.query(
@@ -102,7 +104,7 @@ notes.post('/vaults/:vaultId/notes', async (c) => {
                  word_count, version, created_at, modified_at`,
       [
         vaultId,
-        body.folderId ?? null,
+        body.folder_id ?? null,
         slug,
         body.title,
         bodyMd,
@@ -145,7 +147,7 @@ notes.put('/notes/:id', async (c) => {
     )
     const current = cur.rows[0]
     if (!current) throw NotFound('note not found')
-    if (current.version !== body.expectedVersion) {
+    if (current.version !== body.expected_version) {
       throw Conflict('version_mismatch', { current: current.version })
     }
     const r = await client.query(
@@ -158,7 +160,7 @@ notes.put('/notes/:id', async (c) => {
         WHERE id = $1
         RETURNING id, vault_id, folder_id, slug, title, body_md, frontmatter,
                   word_count, version, created_at, modified_at`,
-      [id, body.bodyMd, JSON.stringify(body.frontmatter), wordCount(body.bodyMd)],
+      [id, body.body_md, JSON.stringify(body.frontmatter), wordCount(body.body_md)],
     )
     return r.rows[0]
   })

@@ -209,7 +209,7 @@ describe('POST /ai/chat', () => {
 
     const res = await app.fetch(
       fakeRequest({
-        vaultId: '11111111-1111-1111-1111-111111111111',
+        vault_id: '11111111-1111-1111-1111-111111111111',
         model: 'gpt-4o',
         messages: [{ role: 'user', content: 'hi' }],
       }),
@@ -222,9 +222,9 @@ describe('POST /ai/chat', () => {
     expect(events[0]!.data).toEqual({ type: 'token', delta: 'Hello' })
     expect(events[2]!.data).toMatchObject({
       type: 'usage',
-      promptTokens: 3,
-      completionTokens: 2,
-      creditsRemaining: 987,
+      prompt_tokens: 3,
+      completion_tokens: 2,
+      credits_remaining: 987,
     })
 
     // Audit + ai_runs lifecycle: insert + update + decrement subs.
@@ -251,7 +251,7 @@ describe('POST /ai/chat', () => {
 
     const res = await app.fetch(
       fakeRequest({
-        vaultId: '11111111-1111-1111-1111-111111111111',
+        vault_id: '11111111-1111-1111-1111-111111111111',
         model: 'gpt-4o',
         messages: [{ role: 'user', content: 'hi' }],
       }),
@@ -294,7 +294,7 @@ describe('POST /ai/chat', () => {
 
     const res = await app.fetch(
       fakeRequest({
-        vaultId: '11111111-1111-1111-1111-111111111111',
+        vault_id: '11111111-1111-1111-1111-111111111111',
         model: 'nope',
         messages: [{ role: 'user', content: 'hi' }],
       }),

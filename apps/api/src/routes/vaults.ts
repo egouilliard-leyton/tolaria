@@ -4,6 +4,7 @@
 import { Hono } from 'hono'
 import type { PgClient } from '../db.js'
 import { withTenant } from '../db.js'
+import { writeAudit } from '../lib/audit.js'
 import { NotFound } from '../lib/errors.js'
 import { toVault } from '../lib/mappers.js'
 import {
@@ -30,7 +31,9 @@ vaults.get('/vaults', async (c) => {
     )
     return r.rows
   })
-  return c.json({ items: rows.map(toVault) })
+  // Bare array per the SPA contract: `HttpVaultAdapter.listVaults` does
+  // `dtos.map(toVault)` directly on the response. Do not wrap in `{ items }`.
+  return c.json(rows.map(toVault))
 })
 
 vaults.post('/vaults', async (c) => {
@@ -56,7 +59,15 @@ vaults.post('/vaults', async (c) => {
        RETURNING id, slug, name, created_at, settings`,
       [user.sid, body.name, slug, user.sub, JSON.stringify(settings)],
     )
-    return r.rows[0]
+    const row = r.rows[0]
+    // ADR-0115 §Consequences: vault.create must be audited inside the same
+    // transaction as the INSERT so the audit row commits or rolls back with it.
+    await writeAudit(client, tenant, 'vault.create', row.id, {
+      vault_id: row.id,
+      slug: row.slug,
+      name: row.name,
+    })
+    return row
   })
   return c.json(toVault(vault), 201)
 })
@@ -98,13 +109,21 @@ vaults.delete('/vaults/:id', async (c) => {
   const { id } = readParams(c, VaultIdParam)
   const tenant = c.get('tenant')
   await withTenant(tenant, async (client) => {
-    const r = await client.query(
+    const r = await client.query<{ id: string; slug: string }>(
       `UPDATE vaults
           SET deleted_at = now()
-        WHERE id = $1 AND deleted_at IS NULL`,
+        WHERE id = $1 AND deleted_at IS NULL
+        RETURNING id, slug`,
       [id],
     )
     if (r.rowCount === 0) throw NotFound('vault not found')
+    const row = r.rows[0]!
+    // ADR-0115 §Consequences: vault.delete must be audited inside the same
+    // transaction as the soft-delete so the two cannot diverge.
+    await writeAudit(client, tenant, 'vault.delete', row.id, {
+      vault_id: row.id,
+      slug: row.slug,
+    })
   })
   return c.body(null, 204)
 })

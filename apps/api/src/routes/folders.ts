@@ -32,7 +32,9 @@ folders.get('/vaults/:vaultId/folders', async (c) => {
     )
     return r.rows
   })
-  return c.json({ items: rows.map(toFolder) })
+  // Bare array per the SPA contract: `HttpVaultAdapter.listFolders` does
+  // `dtos.map(toFolder)` directly on the response. Do not wrap in `{ items }`.
+  return c.json(rows.map(toFolder))
 })
 
 folders.post('/vaults/:vaultId/folders', async (c) => {
@@ -42,14 +44,14 @@ folders.post('/vaults/:vaultId/folders', async (c) => {
 
   const row = await withTenant(tenant, async (client) => {
     await assertVaultExists(client, vaultId)
-    if (body.parentId) await assertFolderInVault(client, body.parentId, vaultId)
+    if (body.parent_id) await assertFolderInVault(client, body.parent_id, vaultId)
 
     try {
       const r = await client.query(
         `INSERT INTO folders (vault_id, parent_id, name, position)
          VALUES ($1, $2, $3, COALESCE($4, 0))
          RETURNING id, vault_id, parent_id, name, position, updated_at`,
-        [vaultId, body.parentId ?? null, body.name, body.position ?? null],
+        [vaultId, body.parent_id ?? null, body.name, body.position ?? null],
       )
       return r.rows[0]
     } catch (err) {
@@ -66,12 +68,12 @@ folders.patch('/folders/:id', async (c) => {
 
   const row = await withTenant(tenant, async (client) => {
     const existing = await loadFolder(client, id)
-    if (body.parentId !== undefined && body.parentId !== null) {
-      if (body.parentId === id) throw InvalidInput('folder cannot be its own parent')
-      await assertFolderInVault(client, body.parentId, existing.vault_id)
+    if (body.parent_id !== undefined && body.parent_id !== null) {
+      if (body.parent_id === id) throw InvalidInput('folder cannot be its own parent')
+      await assertFolderInVault(client, body.parent_id, existing.vault_id)
       // Cycle prevention: walk the proposed parent chain upward and reject if
       // we re-encounter `id`.
-      await assertNoCycle(client, body.parentId, id)
+      await assertNoCycle(client, body.parent_id, id)
     }
     try {
       const r = await client.query(
@@ -85,8 +87,8 @@ folders.patch('/folders/:id', async (c) => {
         [
           id,
           body.name ?? null,
-          body.parentId ?? null,
-          body.parentId !== undefined,
+          body.parent_id ?? null,
+          body.parent_id !== undefined,
           body.position ?? null,
         ],
       )

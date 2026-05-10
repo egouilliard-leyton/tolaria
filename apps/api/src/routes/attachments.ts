@@ -1,12 +1,20 @@
 // Attachment routes — see ADR-0116 and ARCHITECTURE-WEB-SAAS.md §5.
 //
+// Wire format: snake_case (matches the SPA's `HttpVaultAdapter`). Public
+// vault-adapter API uses snake_case; admin endpoints stay camelCase.
+//
 // Lifecycle:
 //   1. POST /vaults/:vaultId/attachments  → row inserted (verified_at = NULL),
-//      presigned PUT URL returned. Browser uploads directly to R2.
+//      presigned PUT URL returned as { id, put_url, key, required_headers,
+//      sha256_header, size_limit, expires_in }. Browser uploads directly to R2.
 //   2. POST /attachments/:id/verify       → API headObject's the bucket,
 //      compares Content-Length and x-amz-meta-sha256, then sets verified_at.
-//   3. GET  /attachments/:id              → 302 to a fresh presigned GET URL,
-//      but only after verification.
+//      Returns the verified AttachmentDto: { id, vault_id, note_id, mime,
+//      size_bytes, sha256, url }.
+//   3. GET  /attachments/:id              → **302** to a fresh presigned GET
+//      URL (only after verification). The SPA's `getAttachmentUrl` does a
+//      manual-redirect fetch and reads the `Location` header — DO NOT change
+//      this to a JSON body without updating the SPA in lockstep.
 //   4. DELETE /attachments/:id            → soft-mark + enqueue r2-gc job.
 //
 // The API never reads upload bytes. The browser never sees R2 credentials.
@@ -21,10 +29,11 @@ import {
   VaultIdRouteParam,
   isAllowedAttachmentMime,
 } from '../lib/schemas.js'
+import { writeAudit } from '../lib/audit.js'
 import { Conflict, InvalidInput, NotFound } from '../lib/errors.js'
 import { scheduleR2Gc } from '../jobs/r2-gc.js'
 import { buildKey, headObject, presignGet, presignPut } from '../services/r2.js'
-import type { Attachment } from './attachments-types.js'
+import type { AttachmentDto } from './attachments-types.js'
 
 export const attachments = new Hono()
 
@@ -54,7 +63,7 @@ attachments.post('/vaults/:vaultId/attachments', async (c) => {
   if (body.size > ATTACHMENT_MAX_SIZE_BYTES) {
     // TODO: per-plan cap once billing lands; for now MVP hardcodes 50 MB.
     throw InvalidInput(`size exceeds plan cap (${ATTACHMENT_MAX_SIZE_BYTES} bytes)`, {
-      maxBytes: ATTACHMENT_MAX_SIZE_BYTES,
+      max_bytes: ATTACHMENT_MAX_SIZE_BYTES,
     })
   }
 
@@ -71,10 +80,10 @@ attachments.post('/vaults/:vaultId/attachments', async (c) => {
     )
     if (vault.rowCount === 0) throw NotFound('vault not found')
 
-    if (body.noteId) {
+    if (body.note_id) {
       const note = await client.query<{ id: string }>(
         'SELECT id FROM notes WHERE id = $1 AND vault_id = $2 AND deleted_at IS NULL',
-        [body.noteId, params.vaultId],
+        [body.note_id, params.vaultId],
       )
       if (note.rowCount === 0) throw NotFound('note not found')
     }
@@ -85,7 +94,7 @@ attachments.post('/vaults/:vaultId/attachments', async (c) => {
        RETURNING id, vault_id, note_id, key_r2, mime, size_bytes, sha256, verified_at, created_at`,
       [
         params.vaultId,
-        body.noteId ?? null,
+        body.note_id ?? null,
         // Placeholder; we update with the real key once we have the row id.
         '__pending__',
         body.mime,
@@ -106,17 +115,35 @@ attachments.post('/vaults/:vaultId/attachments', async (c) => {
 
     await client.query('UPDATE attachments SET key_r2 = $1 WHERE id = $2', [key, row.id])
     row.key_r2 = key
+
+    // ADR-0115 §Consequences: attachment.create is audited at presign time so
+    // the audit row commits with the metadata insert. Verification (POST
+    // /attachments/:id/verify) is a separate, optional step and intentionally
+    // is NOT what we audit — uploads that never verify still happened.
+    await writeAudit(client, tenant, 'attachment.create', row.id, {
+      attachment_id: row.id,
+      vault_id: row.vault_id,
+      note_id: row.note_id,
+      mime: row.mime,
+      size_bytes: Number(row.size_bytes),
+    })
     return row
   })
 
   const presigned = await presignPut(inserted.key_r2, body.mime, body.size, body.sha256)
 
+  // Wire shape: snake_case fields the SPA's HttpVaultAdapter.uploadAttachment
+  // reads — `put_url`, `required_headers`, `sha256_header`. The R2 service
+  // returns `headers` keyed lowercase already, so it is safe to forward as
+  // `required_headers` directly.
   return c.json({
     id: inserted.id,
-    putUrl: presigned.url,
+    put_url: presigned.url,
     key: inserted.key_r2,
-    headers: presigned.headers,
-    expiresIn: presigned.expiresIn,
+    required_headers: presigned.headers,
+    sha256_header: body.sha256,
+    size_limit: ATTACHMENT_MAX_SIZE_BYTES,
+    expires_in: presigned.expiresIn,
   })
 })
 
@@ -180,6 +207,11 @@ attachments.post('/attachments/:id/verify', async (c) => {
 })
 
 // ── GET /attachments/:id  → 302 to presigned URL ─────────────────────────
+//
+// Contract: the SPA's `HttpVaultAdapter.getAttachmentUrl` does
+// `fetch(url, { redirect: 'manual' })` and reads the `Location` header. This
+// route MUST stay a 302 redirect; switching to a JSON body would silently
+// break attachment loading in the SPA.
 
 attachments.get('/attachments/:id', async (c) => {
   const params = AttachmentIdParam.parse(c.req.param())
@@ -228,13 +260,13 @@ attachments.delete('/attachments/:id', async (c) => {
 
 // ── Shape helpers ────────────────────────────────────────────────────────
 
-function toAttachmentShape(row: AttachmentRow, url: string): Attachment {
+function toAttachmentShape(row: AttachmentRow, url: string): AttachmentDto {
   return {
     id: row.id,
-    vaultId: row.vault_id,
-    noteId: row.note_id,
+    vault_id: row.vault_id,
+    note_id: row.note_id,
     mime: row.mime,
-    sizeBytes: Number(row.size_bytes),
+    size_bytes: Number(row.size_bytes),
     sha256: row.sha256,
     url,
   }

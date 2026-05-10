@@ -2,6 +2,11 @@
 // We `.strict()` everywhere so unknown fields are rejected up front and the
 // route handlers don't have to think about extra keys creeping in.
 //
+// Public vault-adapter API: snake_case. The SPA's `HttpVaultAdapter` posts
+// snake_case bodies (e.g. `body_md`, `expected_version`, `from_path`); we
+// parse them as-is here. Admin (/admin/*) stays camelCase — see ADR-0117 and
+// the route file headers.
+//
 // The inferred TS types are re-exported so route handlers can stay terse.
 
 import { z } from 'zod'
@@ -65,7 +70,7 @@ export type FolderIdParam = z.infer<typeof FolderIdParam>
 
 export const CreateFolderBody = z
   .object({
-    parentId: uuid.nullable().optional(),
+    parent_id: uuid.nullable().optional(),
     name: trimmedName,
     position: z.number().int().min(0).optional(),
   })
@@ -75,13 +80,13 @@ export type CreateFolderBody = z.infer<typeof CreateFolderBody>
 export const UpdateFolderBody = z
   .object({
     name: trimmedName.optional(),
-    parentId: uuid.nullable().optional(),
+    parent_id: uuid.nullable().optional(),
     position: z.number().int().min(0).optional(),
   })
   .strict()
   .refine(
-    (v) => v.name !== undefined || v.parentId !== undefined || v.position !== undefined,
-    { message: 'at least one of name, parentId, position is required' },
+    (v) => v.name !== undefined || v.parent_id !== undefined || v.position !== undefined,
+    { message: 'at least one of name, parent_id, position is required' },
   )
 export type UpdateFolderBody = z.infer<typeof UpdateFolderBody>
 
@@ -92,7 +97,7 @@ export type NoteIdParam = z.infer<typeof NoteIdParam>
 
 export const ListNotesQuery = z
   .object({
-    folderId: z.union([uuid, z.literal('null')]).optional(),
+    folder_id: z.union([uuid, z.literal('null')]).optional(),
     limit: limitSchema,
     cursor: cursorSchema,
   })
@@ -101,9 +106,9 @@ export type ListNotesQuery = z.infer<typeof ListNotesQuery>
 
 export const CreateNoteBody = z
   .object({
-    folderId: uuid.nullable().optional(),
+    folder_id: uuid.nullable().optional(),
     title: trimmedName,
-    bodyMd: z.string().max(10_000_000).optional(),
+    body_md: z.string().max(10_000_000).optional(),
     frontmatter: jsonRecord.optional(),
   })
   .strict()
@@ -111,9 +116,9 @@ export type CreateNoteBody = z.infer<typeof CreateNoteBody>
 
 export const SaveNoteBody = z
   .object({
-    bodyMd: z.string().max(10_000_000),
+    body_md: z.string().max(10_000_000),
     frontmatter: jsonRecord,
-    expectedVersion: z.number().int().min(1),
+    expected_version: z.number().int().min(1),
   })
   .strict()
 export type SaveNoteBody = z.infer<typeof SaveNoteBody>
@@ -173,14 +178,14 @@ export const CreateAttachmentBody = z
     size: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
     sha256: sha256Hex,
     filename: filenameSchema,
-    noteId: uuid.optional(),
+    note_id: uuid.optional(),
   })
   .strict()
 export type CreateAttachmentBody = z.infer<typeof CreateAttachmentBody>
 
 // ── Rename ──────────────────────────────────────────────────────────────────
 
-// fromPath / toPath are wikilink targets — usually equal to a note slug or a
+// from_path / to_path are wikilink targets — usually equal to a note slug or a
 // nested path. We keep them loose enough to allow anything a wikilink can
 // contain except the closing brackets and the alias separator.
 const wikilinkTarget = z
@@ -191,11 +196,11 @@ const wikilinkTarget = z
 
 export const RenameBody = z
   .object({
-    fromPath: wikilinkTarget,
-    toPath: wikilinkTarget,
+    from_path: wikilinkTarget,
+    to_path: wikilinkTarget,
   })
   .strict()
-  .refine((v) => v.fromPath !== v.toPath, {
-    message: 'fromPath and toPath must differ',
+  .refine((v) => v.from_path !== v.to_path, {
+    message: 'from_path and to_path must differ',
   })
 export type RenameBody = z.infer<typeof RenameBody>
