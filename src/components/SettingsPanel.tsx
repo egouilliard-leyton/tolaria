@@ -629,26 +629,34 @@ function SettingsBody(props: SettingsBodyProps & { extraSection?: ReactNode }) {
   )
 }
 
-function SettingsBodyNav({ t }: { t: Translate }) {
+type SettingsNavItem = {
+  id: (typeof SETTINGS_SECTION_IDS)[keyof typeof SETTINGS_SECTION_IDS]
+  label: string
+  Icon: typeof RefreshCw
+}
+
+function buildSettingsNavItems(t: Translate): SettingsNavItem[] {
   // Sync (pull interval + release channel), AutoGit, and AI agents (CLI
   // selector) are desktop-only — drop their nav entries in the web build so
   // users don't scroll to an empty section.
   const isWebBuild = import.meta.env.VITE_TARGET === 'web'
-  const items = [
-    !isWebBuild
-      ? { id: SETTINGS_SECTION_IDS.sync, label: t('settings.sync.title'), Icon: RefreshCw }
-      : null,
-    !isWebBuild
-      ? { id: SETTINGS_SECTION_IDS.autogit, label: t('settings.autogit.title'), Icon: GitBranch }
-      : null,
-    { id: SETTINGS_SECTION_IDS.appearance, label: t('settings.appearance.title'), Icon: Palette },
-    { id: SETTINGS_SECTION_IDS.content, label: t('settings.vaultContent.title'), Icon: Folder },
-    !isWebBuild
-      ? { id: SETTINGS_SECTION_IDS.ai, label: t('settings.aiAgents.title'), Icon: Bot }
-      : null,
-    { id: SETTINGS_SECTION_IDS.workflow, label: t('settings.workflow.title'), Icon: ListChecks },
-    { id: SETTINGS_SECTION_IDS.privacy, label: t('settings.privacy.title'), Icon: ShieldCheck },
-  ].filter((item): item is { id: string; label: string; Icon: typeof RefreshCw } => item !== null)
+  const items: SettingsNavItem[] = []
+  if (!isWebBuild) {
+    items.push({ id: SETTINGS_SECTION_IDS.sync, label: t('settings.sync.title'), Icon: RefreshCw })
+    items.push({ id: SETTINGS_SECTION_IDS.autogit, label: t('settings.autogit.title'), Icon: GitBranch })
+  }
+  items.push({ id: SETTINGS_SECTION_IDS.appearance, label: t('settings.appearance.title'), Icon: Palette })
+  items.push({ id: SETTINGS_SECTION_IDS.content, label: t('settings.vaultContent.title'), Icon: Folder })
+  if (!isWebBuild) {
+    items.push({ id: SETTINGS_SECTION_IDS.ai, label: t('settings.aiAgents.title'), Icon: Bot })
+  }
+  items.push({ id: SETTINGS_SECTION_IDS.workflow, label: t('settings.workflow.title'), Icon: ListChecks })
+  items.push({ id: SETTINGS_SECTION_IDS.privacy, label: t('settings.privacy.title'), Icon: ShieldCheck })
+  return items
+}
+
+function SettingsBodyNav({ t }: { t: Translate }) {
+  const items = buildSettingsNavItems(t)
 
   return (
     <div className="hidden w-48 shrink-0 border-r border-border px-3 py-4 md:block">
