@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import * as Sentry from '@sentry/react'
 import { createRoot } from 'react-dom/client'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -7,6 +7,7 @@ import App from './App.tsx'
 import { FrontendReadyMarker } from './components/FrontendReadyMarker'
 import { LinuxTitlebar } from './components/LinuxTitlebar'
 import { applyStoredThemeMode } from './lib/themeMode'
+import { setActiveVaultAdapter } from './lib/vault-adapter'
 import {
   APP_COMMAND_EVENT_NAME,
   isAppCommandId,

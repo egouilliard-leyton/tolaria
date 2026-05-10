@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tolaria
+      POSTGRES_PASSWORD: devpw
+      POSTGRES_DB: tolaria
+    ports: ["5432:5432"]
+    volumes: [tolaria-pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tolaria"]
+      interval: 5s
+
+  authentik-redis:
+    image: redis:7-alpine
+  authentik:
+    image: ghcr.io/goauthentik/server:2024.10
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: change-me-change-me-change-me-change-me
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__USER: tolaria
+      AUTHENTIK_POSTGRESQL__PASSWORD: devpw
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_REDIS__HOST: authentik-redis
+    ports: ["9000:9000"]
+    depends_on: [postgres, authentik-redis]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9091"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9001:9000", "9091:9091"]
+    volumes: [tolaria-minio:/data]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    environment:
+      LITELLM_MASTER_KEY: change-me
+      LITELLM_LOG: INFO
+    ports: ["4000:4000"]
+    volumes: ["./infra/litellm-config.yaml:/app/config.yaml:ro"]
+    command: ["--config", "/app/config.yaml"]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://tolaria_app:devpw@postgres:5432/tolaria
+      DATABASE_MIGRATOR_URL: postgres://tolaria_migrator:devpw@postgres:5432/tolaria
+      R2_ENDPOINT: http://minio:9000
+      AUTHENTIK_ISSUER_URL: http://authentik:9000/application/o/tolaria/
+      LITELLM_BASE_URL: http://litellm:4000
+    ports: ["8787:8787"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_started }
+      litellm: { condition: service_started }
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://tolaria_app:devpw@postgres:5432/tolaria
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  tolaria-pg:
+  tolaria-minio:

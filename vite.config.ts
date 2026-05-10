@@ -889,14 +889,36 @@ function mcpBridgeInfoPlugin(): Plugin {
   }
 }
 
+// Web vs desktop build target. The default is `desktop` so existing
+// `pnpm dev` / `pnpm build` flows are unchanged. Set `VITE_TARGET=web`
+// (via `pnpm build:web`/`pnpm dev:web`) to produce the browser-only bundle.
+const viteTarget: 'web' | 'desktop' = process.env.VITE_TARGET === 'web' ? 'web' : 'desktop'
+const isWebTarget = viteTarget === 'web'
+
+// In the web build every `@tauri-apps/api*` and `@tauri-apps/plugin-*` import
+// is rewritten to this stub so the bundle never reaches into Tauri-only code.
+// See `src/lib/web-build/tauri-stub.ts` and
+// `src/lib/vault-adapter/web-build-aliases.md`.
+const tauriStubPath = path.resolve(__dirname, 'src/lib/web-build/tauri-stub.ts')
+const webBuildAliases = isWebTarget
+  ? [
+      { find: /^@tauri-apps\/api(\/.*)?$/, replacement: tauriStubPath },
+      {
+        find: /^@tauri-apps\/plugin-(dialog|opener|process|updater)(\/.*)?$/,
+        replacement: tauriStubPath,
+      },
+    ]
+  : []
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), vaultApiPlugin(), mcpBridgeInfoPlugin()],
 
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      ...webBuildAliases,
+    ],
   },
 
   // Inject the demo-vault-v2 path in local dev only — production Tauri builds and
@@ -906,6 +928,8 @@ export default defineConfig({
     ...(process.env.CI || (process.env.TAURI_PLATFORM && !process.env.TAURI_DEBUG)
       ? {}
       : { __DEMO_VAULT_PATH__: JSON.stringify(path.resolve(__dirname, 'demo-vault-v2')) }),
+    'import.meta.env.VITE_TARGET': JSON.stringify(viteTarget),
+    'import.meta.env.WEB_SAAS_ENABLED': JSON.stringify(isWebTarget),
   },
 
   // Prevent vite from obscuring Rust errors
@@ -925,8 +949,16 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_'],
 
   build: {
-    // Tauri uses Chromium on Windows and WebKit on macOS/Linux
-    target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+    // Web bundle goes to `dist-web/` so it does not collide with the
+    // desktop bundle in `dist/`.
+    outDir: isWebTarget ? 'dist-web' : 'dist',
+    // Tauri uses Chromium on Windows and WebKit on macOS/Linux. The web
+    // build targets evergreen browsers.
+    target: isWebTarget
+      ? 'es2022'
+      : process.env.TAURI_PLATFORM === 'windows'
+        ? 'chrome105'
+        : 'safari13',
     // Don't minify for debug builds
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     // Produce sourcemaps for debug builds

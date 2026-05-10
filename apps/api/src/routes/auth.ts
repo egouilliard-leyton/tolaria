@@ -12,6 +12,7 @@ import { loadEnv } from '../env.js'
 import { Forbidden, InvalidInput, Unauthenticated } from '../lib/errors.js'
 import { logger } from '../lib/logger.js'
 import { mintAccessToken, type AccessTokenClaims } from '../middleware/auth.js'
+import { AUTH_RATE_LIMIT, rateLimit } from '../middleware/rate-limit.js'
 import {
   issueRefreshToken,
   revokeRefreshToken,
@@ -47,6 +48,14 @@ import {
 
 const env = loadEnv()
 export const auth = new Hono()
+
+// Per-IP rate limit on every login/callback/refresh/logout endpoint. We
+// cannot key on user id here because the user is not authenticated yet (or
+// is being authenticated by this very request). See plan §9.
+auth.use(
+  '/auth/*',
+  rateLimit({ bucket: 'auth', scope: 'ip', ...AUTH_RATE_LIMIT }),
+)
 
 const PKCE_COOKIE = 'tolaria_pkce'
 const PKCE_TTL_SECONDS = 10 * 60

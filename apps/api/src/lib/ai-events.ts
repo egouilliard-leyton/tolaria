@@ -39,6 +39,10 @@ export const AiStreamRequestSchema = z.object({
   model: z.string().min(1),
   messages: z.array(AiMessageSchema).min(1),
   tools: z.array(AiToolSchema).optional(),
+  // Only meaningful for `/ai/agent/run`. The plain `/ai/chat` route ignores
+  // it. We accept it on both routes so the SPA does not have to maintain two
+  // request shapes; sequential is the safe default (one tool per round).
+  agent_mode: z.enum(['sequential', 'parallel']).optional(),
 })
 
 export type AiStreamRequest = z.infer<typeof AiStreamRequestSchema>

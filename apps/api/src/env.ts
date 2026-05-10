@@ -44,6 +44,14 @@ const Schema = z.object({
 
   LITELLM_BASE_URL: z.string().url(),
   LITELLM_TOKEN: z.string().min(1),
+
+  // When `1`, the rate-limit middleware honors the leftmost entry of
+  // `X-Forwarded-For` as the client IP. When `0` (the default), it uses the
+  // socket remote address from the Node listener so a malicious client cannot
+  // forge a header to bypass per-IP throttles. Set to `1` only when running
+  // behind a trusted reverse proxy (e.g. an ingress that terminates TLS and
+  // sets the header itself). See docs/ARCHITECTURE-WEB-SAAS.md §9.
+  TRUST_PROXY: z.coerce.boolean().default(false),
 })
 
 export type Env = z.infer<typeof Schema>

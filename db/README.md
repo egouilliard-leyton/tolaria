@@ -1,8 +1,19 @@
 # Database migrations
 
 Plain SQL migrations applied in lexical order. The API does not auto-migrate
-in production — run `pnpm --filter @tolaria/api db:migrate` (or pipe each
-file into `psql`) using the migrator role.
+in production. The preferred way to apply migrations is the bundled Node
+runner in `db/migrate.ts`, which records every applied file in a `_migrations`
+table and skips files it has already run:
+
+```bash
+# Uses DATABASE_MIGRATOR_URL (preferred) or DATABASE_URL.
+pnpm db:migrate
+```
+
+The runner is idempotent — re-running it after adding a new migration only
+applies the new file, wrapped in a transaction. If you need to apply a single
+file by hand (e.g. on a remote box without Node), you can still pipe it
+through `psql` using the migrator role:
 
 ```bash
 psql "$DATABASE_MIGRATOR_URL" -f db/migrations/0001_init.sql

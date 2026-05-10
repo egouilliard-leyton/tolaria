@@ -25,6 +25,7 @@
 import { Hono } from 'hono'
 import { withTenant } from '../db.js'
 import { Forbidden, InvalidInput } from '../lib/errors.js'
+import { AI_RATE_LIMIT, rateLimit } from '../middleware/rate-limit.js'
 import {
   AiStreamRequestSchema,
   AiToolResultSchema,
