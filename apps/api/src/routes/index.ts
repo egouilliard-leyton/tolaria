@@ -1,43 +1,52 @@
 // Route mounting. Each feature stream owns one file under routes/.
-// Stubs are exported here so the main entry can mount them unconditionally
-// once the corresponding agent ships its real implementation.
+// The agents A–E shipped real implementations; this orchestrator file wires
+// every sub-app into the public surface described in
+// docs/ARCHITECTURE-WEB-SAAS.md §5.
 
 import { Hono } from 'hono'
 import { requireAuth } from '../middleware/auth.js'
 import { withTenantContext } from '../middleware/tenant.js'
 import { health } from './health.js'
+import { auth } from './auth.js'
+import { me } from './me.js'
+import { vaults } from './vaults.js'
+import { folders } from './folders.js'
+import { notes } from './notes.js'
+import { search } from './search.js'
+import { rename } from './rename.js'
+import { attachments } from './attachments.js'
+import { ai } from './ai.js'
+import { aiAgent } from './ai-agent.js'
+import { ssoAdmin } from './admin/sso.js'
+import { usersAdmin } from './admin/users.js'
 
 export function buildAppRoutes(): Hono {
   const app = new Hono()
+
+  // Unauthenticated. Health probes for k8s/orchestrators and the OIDC/login
+  // handshake live outside the bearer-token gate.
   app.route('/', health)
+  app.route('/', auth)
 
   // Authed surface. Each route module is a Hono sub-app and is mounted under
-  // the requireAuth + withTenantContext gate. The placeholder modules
-  // intentionally return 501 until their owning agent ships the real impl.
+  // requireAuth + withTenantContext. The route files declare their full
+  // internal paths (e.g. `/vaults/:id`, `/notes/:id`, `/ai/chat`) so we mount
+  // them at `/` to avoid double-prefixing. The admin sub-apps declare paths
+  // relative to their own area (`/providers`, `/invite`, etc.) and are
+  // therefore mounted at `/admin/sso` and `/admin/users`.
   const authed = new Hono().use('*', requireAuth, withTenantContext)
-  authed.all('/me', notImplemented('agent A'))
-  authed.all('/vaults', notImplemented('agent B'))
-  authed.all('/vaults/*', notImplemented('agent B'))
-  authed.all('/notes/*', notImplemented('agent B'))
-  authed.all('/folders/*', notImplemented('agent B'))
-  authed.all('/attachments/*', notImplemented('agent D'))
-  authed.all('/ai/*', notImplemented('agent E'))
-  authed.all('/admin/sso/*', notImplemented('agent C'))
-  authed.all('/admin/users/*', notImplemented('agent C'))
+  authed.route('/', me)
+  authed.route('/', vaults)
+  authed.route('/', folders)
+  authed.route('/', notes)
+  authed.route('/', search)
+  authed.route('/', rename)
+  authed.route('/', attachments)
+  authed.route('/', ai)
+  authed.route('/', aiAgent)
+  authed.route('/admin/sso', ssoAdmin)
+  authed.route('/admin/users', usersAdmin)
 
   app.route('/', authed)
   return app
-}
-
-function notImplemented(owner: string) {
-  return (c: import('hono').Context) =>
-    c.json(
-      {
-        error: {
-          code: 'not_implemented',
-          message: `Route not yet implemented (owner: ${owner}); see docs/ARCHITECTURE-WEB-SAAS.md §5.`,
-        },
-      },
-      501,
-    )
 }
