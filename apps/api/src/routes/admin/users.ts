@@ -138,12 +138,16 @@ usersAdmin.post('/invite', async (c) => {
     subscriptionId: tenant.subscriptionId,
     email: created.email,
   })
-  const acceptInviteUrl = `${env.WEB_PUBLIC_URL.replace(/\/$/, '')}/invite/accept?token=${encodeURIComponent(token)}`
+  const inviteUrl = `${env.WEB_PUBLIC_URL.replace(/\/$/, '')}/invite/accept?token=${encodeURIComponent(token)}`
 
+  // Wire shape matches what the SPA reads in `src/lib/admin-api.ts`
+  // (`InviteResult { inviteUrl, member }`). `expiresInSeconds` rides along as
+  // an optional sibling so the UI can show a "valid for N days" hint without
+  // having to decode the JWT itself.
   return c.json(
     {
-      user: rowToResponse(created),
-      acceptInviteUrl,
+      inviteUrl,
+      member: rowToResponse(created),
       expiresInSeconds: INVITE_TTL_SECONDS,
     },
     201,

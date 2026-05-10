@@ -26,8 +26,8 @@ const sampleProvider: SsoProvider = {
   clientId: 'tolaria-acme',
   scopes: ['openid', 'profile', 'email'],
   defaultRole: 'member',
-  jit: true,
-  hasSecret: true,
+  jitProvisioning: true,
+  clientSecretSet: true,
 }
 
 describe('SsoProvidersPage', () => {
@@ -50,6 +50,30 @@ describe('SsoProvidersPage', () => {
     render(<SsoProvidersPage locale="en" />)
     expect(await screen.findByText('Acme IdP')).toBeInTheDocument()
     expect(listMock).toHaveBeenCalledTimes(1)
+  })
+
+  // G02: the SPA must read the server's `jitProvisioning` / `clientSecretSet`
+  // vocabulary directly without throwing or treating it as undefined. If the
+  // renamed fields regressed back to `jit` / `hasSecret`, the JIT and secret
+  // status cells would render the "off" / "missing" copy here.
+  it('surfaces the renamed jitProvisioning and clientSecretSet fields', async () => {
+    listMock.mockResolvedValueOnce([
+      { ...sampleProvider, jitProvisioning: true, clientSecretSet: true },
+    ])
+    render(<SsoProvidersPage locale="en" />)
+    expect(await screen.findByText('Acme IdP')).toBeInTheDocument()
+    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.getByText('Set')).toBeInTheDocument()
+  })
+
+  it('reflects jitProvisioning=false and clientSecretSet=false', async () => {
+    listMock.mockResolvedValueOnce([
+      { ...sampleProvider, jitProvisioning: false, clientSecretSet: false },
+    ])
+    render(<SsoProvidersPage locale="en" />)
+    expect(await screen.findByText('Acme IdP')).toBeInTheDocument()
+    expect(screen.getByText('Off')).toBeInTheDocument()
+    expect(screen.getByText('Missing')).toBeInTheDocument()
   })
 
   it('shows the empty state when no providers exist', async () => {
@@ -100,7 +124,7 @@ describe('SsoProvidersPage', () => {
           clientSecret: 'secret-value',
           scopes: ['openid', 'profile', 'email'],
           defaultRole: 'member',
-          jit: true,
+          jitProvisioning: true,
         }),
       )
     })

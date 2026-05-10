@@ -71,6 +71,8 @@ export interface Member {
 export interface InviteResult {
   inviteUrl: string
   member: Member
+  /** Optional: TTL of the invite token in seconds; present on current API responses. */
+  expiresInSeconds?: number
 }
 
 export class ApiError extends Error {
@@ -87,14 +89,28 @@ export class ApiError extends Error {
   }
 }
 
-interface ApiErrorBody {
+interface ApiErrorEnvelope {
   code?: unknown
   message?: unknown
+  details?: unknown
   detail?: unknown
+}
+
+interface ApiErrorBody extends ApiErrorEnvelope {
+  /**
+   * The server's canonical error envelope (see
+   * `apps/api/src/middleware/error-handler.ts`). When present, its fields
+   * take precedence over any flat-shape fallback.
+   */
+  error?: ApiErrorEnvelope
 }
 
 function pickString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback
+}
+
+function pickDetails(body: ApiErrorBody): unknown {
+  return body.error?.details ?? body.error?.detail ?? body.details ?? body.detail
 }
 
 async function parseError(response: Response): Promise<ApiError> {
@@ -104,9 +120,18 @@ async function parseError(response: Response): Promise<ApiError> {
   } catch {
     // non-JSON response; keep defaults
   }
-  const code = pickString(body.code, `http_${response.status}`)
-  const message = pickString(body.message, response.statusText || 'Request failed')
-  return new ApiError(response.status, code, message, body.detail)
+  // Prefer the server's `{ error: { code, message, details } }` envelope.
+  // Fall back to the flat shape for forward-compat with any older surface.
+  // Mirrors `toApiError` in src/lib/vault-adapter/api-client.ts.
+  const code = pickString(
+    body.error?.code ?? body.code,
+    `http_${response.status}`,
+  )
+  const message = pickString(
+    body.error?.message ?? body.message,
+    response.statusText || 'Request failed',
+  )
+  return new ApiError(response.status, code, message, pickDetails(body))
 }
 
 interface RequestOptions {

@@ -171,6 +171,14 @@ describe('GET /admin/sso/providers', () => {
     expect(p.clientSecretSet).toBe(true)
     expect(JSON.stringify(p)).not.toContain('client_secret_enc')
     expect(p).not.toHaveProperty('clientSecret')
+
+    // G02: the wire shape is `jitProvisioning` + `clientSecretSet` (ADR-0117
+    // vocabulary). The legacy short names `jit` and `hasSecret` must NOT
+    // appear — the SPA was renamed to match the server.
+    expect(p).toHaveProperty('jitProvisioning')
+    expect(p.jitProvisioning).toBe(true)
+    expect(p).not.toHaveProperty('jit')
+    expect(p).not.toHaveProperty('hasSecret')
   })
 })
 

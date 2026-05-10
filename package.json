@@ -28,6 +28,7 @@
     "playwright:integration": "playwright test --config playwright.integration.config.ts",
     "test:coverage": "node scripts/run-vitest-coverage.mjs",
     "db:migrate": "tsx db/migrate.ts",
+    "db:seed-platform": "tsx apps/api/scripts/seed-platform-provider.ts",
     "prepare": "husky"
   },
   "dependencies": {

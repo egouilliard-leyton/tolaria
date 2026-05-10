@@ -37,7 +37,7 @@ interface FormState {
   clientSecret: string
   scopes: string
   defaultRole: ProviderRole
-  jit: boolean
+  jitProvisioning: boolean
 }
 
 interface FormErrors {
@@ -69,7 +69,7 @@ function toInitialState(initial: SsoProvider | undefined): FormState {
     clientSecret: '',
     scopes: toScopesString(initial?.scopes),
     defaultRole: initial?.defaultRole ?? 'member',
-    jit: initial?.jit ?? true,
+    jitProvisioning: initial?.jitProvisioning ?? true,
   }
 }
 
@@ -134,7 +134,7 @@ export function SsoProviderForm({
         clientSecret: state.clientSecret,
         scopes: fromScopesString(state.scopes),
         defaultRole: state.defaultRole,
-        jit: state.jit,
+        jitProvisioning: state.jitProvisioning,
       })
     } catch (err) {
       const message =
@@ -285,8 +285,8 @@ export function SsoProviderForm({
         </div>
         <Switch
           id="sso-jit"
-          checked={state.jit}
-          onCheckedChange={(checked) => update('jit', checked)}
+          checked={state.jitProvisioning}
+          onCheckedChange={(checked) => update('jitProvisioning', checked)}
         />
       </div>
 

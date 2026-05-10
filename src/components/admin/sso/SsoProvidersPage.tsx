@@ -230,12 +230,12 @@ function SsoProvidersBody({
               </Badge>
             </TableCell>
             <TableCell>
-              {provider.jit
+              {provider.jitProvisioning
                 ? t('admin.sso.table.jit.on')
                 : t('admin.sso.table.jit.off')}
             </TableCell>
             <TableCell>
-              {provider.hasSecret
+              {provider.clientSecretSet
                 ? t('admin.sso.table.secret.set')
                 : t('admin.sso.table.secret.missing')}
             </TableCell>
