@@ -40,11 +40,30 @@ export interface SsoProviderInput {
   jit: boolean
 }
 
+/**
+ * Lifecycle status of a member as surfaced by the admin API.
+ *
+ * - `invited`: row exists but the user has not yet accepted (no
+ *   `password_hash` and no recorded sign-in).
+ * - `active`: the user is provisioned and may sign in.
+ * - `revoked`: the user was soft-revoked by an admin/owner.
+ *
+ * The server may omit this in older responses; the SPA should default to
+ * `'active'` when absent.
+ */
+export type MemberStatus = 'invited' | 'active' | 'revoked'
+
 export interface Member {
   id: string
   email: string
   role: UserRole
   createdAt: string
+  /** Optional: server may omit on older responses. Falls back to "active". */
+  status?: MemberStatus
+  /** Optional: human-friendly name; null/absent if the user has not set one. */
+  displayName?: string | null
+  /** Optional: ISO-8601; absent on older responses. */
+  updatedAt?: string
 }
 
 export interface InviteResult {

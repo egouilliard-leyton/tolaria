@@ -163,11 +163,11 @@ describe('GET /admin/sso/providers', () => {
     })
     const res = await app.request('/admin/sso/providers')
     expect(res.status).toBe(200)
-    const body = (await res.json()) as {
-      providers: Array<Record<string, unknown>>
-    }
-    expect(body.providers).toHaveLength(1)
-    const p = body.providers[0]!
+    // The SPA reads this as `SsoProvider[]`, so the wire shape is a bare
+    // array, not a `{ providers: [...] }` envelope.
+    const body = (await res.json()) as Array<Record<string, unknown>>
+    expect(body).toHaveLength(1)
+    const p = body[0]!
     expect(p.clientSecretSet).toBe(true)
     expect(JSON.stringify(p)).not.toContain('client_secret_enc')
     expect(p).not.toHaveProperty('clientSecret')

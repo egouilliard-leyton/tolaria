@@ -103,7 +103,9 @@ ssoAdmin.get('/providers', async (c) => {
     )
     return r.rows
   })
-  return c.json({ providers: rows.map(rowToResponse) })
+  // Bare array — the SPA's `listSsoProviders()` reads the response body as
+  // `SsoProvider[]`. See src/lib/admin-api.ts.
+  return c.json(rows.map(rowToResponse))
 })
 
 ssoAdmin.post('/providers', async (c) => {

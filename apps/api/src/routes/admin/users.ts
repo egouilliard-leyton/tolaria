@@ -52,7 +52,7 @@ interface UserResponse {
   email: string
   role: 'owner' | 'admin' | 'member'
   displayName: string | null
-  status: 'active' | 'invited'
+  status: 'active' | 'invited' | 'revoked'
   createdAt: string
   updatedAt: string
 }
@@ -63,11 +63,14 @@ function rowToResponse(row: UserRow): UserResponse {
     email: row.email,
     role: row.role,
     displayName: row.display_name,
-    status: row.password_hash || row.role !== 'member' ? 'active' : 'invited',
-    // The "invited" heuristic above is conservative: an invited member has no
-    // password_hash and has not yet logged in. Owners/admins are always
-    // surfaced as active. SSO-only users will read as "invited" until agent A
-    // backfills a `last_login_at` column — fine for v1.
+    // TODO: derive status properly once `users.revoked_at` and
+    // `users.last_seen_at` columns exist. The intended derivation is:
+    //   revoked_at IS NOT NULL                       → 'revoked'
+    //   password_hash IS NULL AND last_seen_at IS NULL → 'invited'
+    //   else                                          → 'active'
+    // Neither column is present in the v1 schema, so per the contract
+    // alignment plan we surface everyone as 'active' for now.
+    status: 'active',
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   }
@@ -91,7 +94,9 @@ usersAdmin.get('/', async (c) => {
     )
     return r.rows
   })
-  return c.json({ users: rows.map(rowToResponse) })
+  // Bare array — the SPA's `listUsers()` reads the response body as
+  // `Member[]`. See src/lib/admin-api.ts.
+  return c.json(rows.map(rowToResponse))
 })
 
 usersAdmin.post('/invite', async (c) => {
