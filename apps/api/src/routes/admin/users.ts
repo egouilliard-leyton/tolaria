@@ -211,7 +211,7 @@ usersAdmin.patch('/:id', async (c) => {
     return row
   })
 
-  return c.json({ user: rowToResponse(updated) })
+  return c.json(rowToResponse(updated))
 })
 
 usersAdmin.delete('/:id', async (c) => {
@@ -279,7 +279,10 @@ usersAdmin.delete('/:id', async (c) => {
     return after
   })
 
-  return c.json({ user: rowToResponse(result) })
+  // Bind `result` so the audit-side effects above remain typed; the SPA
+  // expects 204 No Content, not the soft-revoked row.
+  void result
+  return c.body(null, 204)
 })
 
 // ── Invite token ────────────────────────────────────────────────────────────

@@ -5,11 +5,16 @@
 //   2. Login button -> startLogin() redirects to /auth/oidc/<provider>/start.
 //      The API runs PKCE, completes the OIDC handshake server-side, sets a
 //      httpOnly Secure SameSite=Lax refresh cookie, and redirects the
-//      browser back to /auth/complete?access_token=…&expires_at=….
+//      browser back to /auth/complete#access_token=…&expires_in=…. The
+//      fragment is preferred over the query string because URL fragments
+//      are never sent to the server (they don't show up in access logs,
+//      Referer headers, or APM traces). For backwards compatibility we
+//      also accept the same params on the query string.
 //   3. /auth/complete route -> completeLogin() reads the access token from
-//      the URL, stashes it in memory via api-client.setAccessToken, then
-//      uses history.replaceState to scrub the token from the address bar
-//      and browser history.
+//      window.location.hash (preferred) or window.location.search, stashes
+//      it in memory via api-client.setAccessToken, then uses
+//      history.replaceState to scrub the token from the address bar and
+//      browser history.
 //   4. Subsequent requests -> api-client attaches the access token. On
 //      401, it auto-refreshes against POST /auth/refresh (the cookie is
 //      sent automatically by the browser).
@@ -38,8 +43,13 @@ export function startLogin(providerId: string = 'default'): void {
 }
 
 /**
- * Read access_token / expires_at from the current URL, install the token
- * in memory, and scrub the query string from the browser history.
+ * Read access_token / expires_in (or expires_at) from the current URL,
+ * install the token in memory, and scrub both the fragment and the query
+ * string from the browser history.
+ *
+ * The server delivers the token in the URL fragment (which never reaches
+ * server logs / Referer headers). We also fall back to the query string
+ * to keep older clients and tests working.
  *
  * Returns the parsed completion when the URL contained a token, or `null`
  * when there was nothing to do (e.g. the route was loaded without a token,
@@ -47,22 +57,35 @@ export function startLogin(providerId: string = 'default'): void {
  */
 export function completeLogin(): LoginCompletion | null {
   if (typeof window === 'undefined') return null
-  const url = new URL(window.location.href)
-  const accessToken = url.searchParams.get('access_token')
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const queryParams = new URLSearchParams(window.location.search)
+  const accessToken =
+    hashParams.get('access_token') ?? queryParams.get('access_token')
   if (!accessToken) return null
 
-  const expiresAtRaw = url.searchParams.get('expires_at')
-  const expiresAt = expiresAtRaw ? parsePosixOrIsoMillis(expiresAtRaw) : null
+  // The server emits `expires_in` (seconds-from-now); the older client wire
+  // shape used `expires_at` (unix millis or ISO timestamp). Accept both.
+  const expiresInRaw =
+    hashParams.get('expires_in') ?? queryParams.get('expires_in')
+  const expiresAtRaw =
+    hashParams.get('expires_at') ?? queryParams.get('expires_at')
+  let expiresAt: number | null = null
+  if (expiresInRaw) {
+    const seconds = Number(expiresInRaw)
+    if (Number.isFinite(seconds) && seconds > 0) {
+      expiresAt = Date.now() + seconds * 1000
+    }
+  } else if (expiresAtRaw) {
+    expiresAt = parsePosixOrIsoMillis(expiresAtRaw)
+  }
 
   setAccessToken(accessToken)
 
-  // Scrub the URL so the token doesn't sit in `window.history`, the page
-  // title, or `document.referrer` for any subsequent navigation.
-  url.searchParams.delete('access_token')
-  url.searchParams.delete('expires_at')
-  const cleaned = `${url.pathname}${url.search ? url.search : ''}${url.hash}`
+  // Scrub both the fragment and the query string so the token does not sit
+  // in `window.history`, the page title, or `document.referrer` for any
+  // subsequent navigation.
   try {
-    window.history.replaceState({}, '', cleaned)
+    window.history.replaceState({}, '', window.location.pathname)
   } catch {
     // some sandboxed environments forbid replaceState; the token is
     // already in memory, the address bar leak is the only consequence.

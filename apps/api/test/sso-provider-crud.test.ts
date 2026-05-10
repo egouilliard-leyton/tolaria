@@ -233,8 +233,11 @@ describe('POST /admin/sso/providers', () => {
       }),
     })
     expect(res.status).toBe(201)
-    const body = (await res.json()) as { provider: { clientSecretSet: boolean } }
-    expect(body.provider.clientSecretSet).toBe(true)
+    // The SPA reads the POST response as a bare `SsoProvider`, not a
+    // `{ provider: … }` envelope.
+    const body = (await res.json()) as { clientSecretSet: boolean }
+    expect(body.clientSecretSet).toBe(true)
+    expect(body).not.toHaveProperty('provider')
 
     // The body of the request must never round-trip into the response.
     const text = JSON.stringify(body)
@@ -312,6 +315,10 @@ describe('PATCH /admin/sso/providers/:id', () => {
       },
     )
     expect(res.status).toBe(200)
+    // PATCH responds with the bare SsoProvider, not `{ provider: … }`.
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body).not.toHaveProperty('provider')
+    expect(body.clientSecretSet).toBe(true)
     const audit = fakeClient.calls.find((c) => c.text.includes('INSERT INTO audit_log'))
     expect(audit?.values?.[2]).toBe('sso_provider.update')
     const meta = audit?.values?.[4] as Record<string, unknown>
@@ -330,7 +337,7 @@ describe('DELETE /admin/sso/providers/:id', () => {
     expect(res.status).toBe(404)
   })
 
-  it('writes a sso_provider.delete audit row on success', async () => {
+  it('writes a sso_provider.delete audit row and returns 204 on success', async () => {
     const app = await buildApp('owner')
     fakeClient.responses.push({
       rows: [{ id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', name: 'Old', issuer_url: 'https://x' }],
@@ -340,7 +347,10 @@ describe('DELETE /admin/sso/providers/:id', () => {
       '/admin/sso/providers/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
       { method: 'DELETE' },
     )
-    expect(res.status).toBe(200)
+    // SPA expects 204 No Content, not an envelope.
+    expect(res.status).toBe(204)
+    const body = await res.text()
+    expect(body).toBe('')
     const audit = fakeClient.calls.find((c) => c.text.includes('INSERT INTO audit_log'))
     expect(audit?.values?.[2]).toBe('sso_provider.delete')
   })

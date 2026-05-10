@@ -30,5 +30,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: DATABASE_MIGRATOR_URL=postgres://tolaria:devpw@localhost:5432/tolaria pnpm db:migrate
       - run: pnpm --filter @tolaria/api test
+      - run: pnpm --filter @tolaria/worker test
       - run: pnpm --filter @tolaria/api build
       - run: pnpm --filter @tolaria/worker build

@@ -9,6 +9,7 @@ import {
 } from 'hono/cookie'
 import { withPlatformContext, withTenant, type PgClient } from '../db.js'
 import { loadEnv } from '../env.js'
+import { clientIp } from '../lib/client-ip.js'
 import { Forbidden, InvalidInput, Unauthenticated } from '../lib/errors.js'
 import { logger } from '../lib/logger.js'
 import { mintAccessToken, type AccessTokenClaims } from '../middleware/auth.js'
@@ -141,14 +142,6 @@ function clearRefreshCookie(c: import('hono').Context): void {
     path: REFRESH_COOKIE_PATH,
     domain: env.AUTH_REFRESH_COOKIE_DOMAIN,
   })
-}
-
-function clientIp(c: import('hono').Context): string | null {
-  return (
-    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-    c.req.header('x-real-ip') ||
-    null
-  )
 }
 
 function buildCallbackUrl(providerId: string): string {

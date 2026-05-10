@@ -61,6 +61,20 @@ async function main(): Promise<void> {
     await handleRebuildVaultIndex(job)
   })
 
+  // Periodic sweep for abandoned uploads (ADR-0116 §4). The handler is
+  // idempotent and reads the grace interval from
+  // `R2_UNVERIFIED_GRACE_INTERVAL` (default '1 hour'). When invoked with
+  // no `subscriptionId` it enumerates the tenants that currently have
+  // stale unverified rows and runs the sweep once per tenant under the
+  // appropriate `withTenant` scope so RLS stays honest. `singletonKey`
+  // keeps a slow sweep from being dispatched twice concurrently.
+  await boss.schedule(
+    'r2-gc',
+    '*/10 * * * *',
+    { mode: 'unverified-sweep' },
+    { singletonKey: 'unverified-sweep' },
+  )
+
   logger.info(
     {
       queues: [

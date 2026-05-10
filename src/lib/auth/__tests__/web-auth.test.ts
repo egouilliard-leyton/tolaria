@@ -7,10 +7,19 @@ const ORIGINAL_LOCATION = window.location
 
 function setLocation(href: string) {
   // jsdom forbids reassigning window.location directly; work around it.
+  const parsed = new URL(href)
   delete (window as unknown as { location: unknown }).location
   ;(window as unknown as { location: Location }).location = {
     ...ORIGINAL_LOCATION,
     href,
+    origin: parsed.origin,
+    protocol: parsed.protocol,
+    host: parsed.host,
+    hostname: parsed.hostname,
+    port: parsed.port,
+    pathname: parsed.pathname,
+    search: parsed.search,
+    hash: parsed.hash,
     assign: vi.fn(),
     replace: vi.fn(),
     reload: vi.fn(),
@@ -54,21 +63,39 @@ describe('completeLogin', () => {
     expect(getAccessToken()).toBeNull()
   })
 
-  it('extracts the token, installs it in memory, and scrubs the URL', () => {
-    setLocation('https://app.test.tolaria/auth/complete?access_token=abc.def&expires_at=1234567890')
+  it('extracts the token from the URL fragment, installs it, and scrubs the URL', () => {
+    // The server redirects to /auth/complete#access_token=…&expires_in=…
+    setLocation(
+      'https://app.test.tolaria/auth/complete#access_token=abc.def&token_type=Bearer&expires_in=600',
+    )
+    const before = Date.now()
     const replaceState = vi.spyOn(window.history, 'replaceState')
 
     const completion = completeLogin()
 
-    expect(completion).toEqual({ accessToken: 'abc.def', expiresAt: 1234567890 })
+    expect(completion?.accessToken).toBe('abc.def')
     expect(getAccessToken()).toBe('abc.def')
+    // expires_in is seconds-from-now; allow a small window for clock drift.
+    expect(completion?.expiresAt).not.toBeNull()
+    expect(completion!.expiresAt!).toBeGreaterThanOrEqual(before + 600 * 1000 - 50)
+    expect(completion!.expiresAt!).toBeLessThanOrEqual(Date.now() + 600 * 1000 + 50)
     expect(replaceState).toHaveBeenCalled()
     const cleanedUrl = replaceState.mock.calls[0][2] as string
     expect(cleanedUrl).not.toContain('access_token')
-    expect(cleanedUrl).not.toContain('expires_at')
+    expect(cleanedUrl).not.toContain('expires_in')
+    expect(cleanedUrl).not.toContain('#')
   })
 
-  it('parses ISO-format expires_at', () => {
+  it('falls back to the query string when the fragment is empty', () => {
+    setLocation(
+      'https://app.test.tolaria/auth/complete?access_token=abc.def&expires_at=1234567890',
+    )
+    const completion = completeLogin()
+    expect(completion).toEqual({ accessToken: 'abc.def', expiresAt: 1234567890 })
+    expect(getAccessToken()).toBe('abc.def')
+  })
+
+  it('parses ISO-format expires_at from the query string', () => {
     setLocation(
       'https://app.test.tolaria/auth/complete?access_token=tok&expires_at=2026-05-10T12:00:00Z',
     )

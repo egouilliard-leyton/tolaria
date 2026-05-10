@@ -17,7 +17,7 @@
 import type { MiddlewareHandler, Context } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { pool } from '../db.js'
-import { loadEnv } from '../env.js'
+import { clientIp as resolveClientIp } from '../lib/client-ip.js'
 import { RateLimited, Unauthenticated } from '../lib/errors.js'
 
 export interface RateLimitConfig {
@@ -37,8 +37,6 @@ interface BucketRow {
   allowed: boolean
   remaining: string | number
 }
-
-const env = loadEnv()
 
 /**
  * Build a Hono middleware that enforces a token-bucket against
@@ -82,10 +80,11 @@ function deriveKey(cfg: RateLimitConfig, c: Context): string {
 }
 
 function clientIp(c: Context): string {
-  if (env.TRUST_PROXY) {
-    const fwd = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-    if (fwd) return fwd
-  }
+  // Prefer the shared helper so the `TRUST_PROXY` gate stays in one place;
+  // when it returns null (test harness, no socket) fall back to the
+  // connection-info shim that exposes the Node socket directly.
+  const shared = resolveClientIp(c)
+  if (shared) return shared
   try {
     const info = getConnInfo(c)
     if (info.remote.address) return info.remote.address

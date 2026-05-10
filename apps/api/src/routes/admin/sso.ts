@@ -151,7 +151,7 @@ ssoAdmin.post('/providers', async (c) => {
     return row
   })
 
-  return c.json({ provider: rowToResponse(created) }, 201)
+  return c.json(rowToResponse(created), 201)
 })
 
 ssoAdmin.patch('/providers/:id', async (c) => {
@@ -231,7 +231,7 @@ ssoAdmin.patch('/providers/:id', async (c) => {
     return row
   })
 
-  return c.json({ provider: rowToResponse(updated) })
+  return c.json(rowToResponse(updated))
 })
 
 ssoAdmin.delete('/providers/:id', async (c) => {
@@ -257,7 +257,10 @@ ssoAdmin.delete('/providers/:id', async (c) => {
     return row
   })
 
-  return c.json({ deleted: { id: removed.id } })
+  // Bind `removed` to avoid an unused-binding warning; the value itself is
+  // not part of the response — the SPA expects 204 No Content.
+  void removed
+  return c.body(null, 204)
 })
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
