@@ -348,9 +348,22 @@ function ProgressStep({ vaultPath, notesProvider, runSync, progress }: ProgressS
     let cancelled = false
     void (async () => {
       try {
+        // eslint-disable-next-line no-console
+        console.log('[sync-to-cloud] effect: calling notesProvider')
         const { notes, attachments } = await notesProvider()
+        // eslint-disable-next-line no-console
+        console.log('[sync-to-cloud] effect: got notes', notes.length, 'typeof runSync=', typeof runSync)
         if (cancelled) return
-        await runSync(vaultPath, notes, attachments ?? [])
+        // eslint-disable-next-line no-console
+        console.log('[sync-to-cloud] about to call runSync')
+        const result = await runSync(vaultPath, notes, attachments ?? [])
+        // eslint-disable-next-line no-console
+        console.log('[sync-to-cloud] effect: runSync returned', result)
+        if (!result.ok && result.error && cancelled === false) {
+          // Errors mid-sync are recorded in `progress.errors` already; the
+          // top-level message goes to a separate region for visibility.
+          setLoadError(result.error)
+        }
       } catch (err) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Could not load notes.'
