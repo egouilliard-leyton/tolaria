@@ -15,6 +15,8 @@ export default defineConfig([
     'src-tauri/target/',
     'src-tauri/gen/',
     'tools/',
+    'apps/',
+    '.claude/worktrees/',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
@@ -27,6 +29,14 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    rules: {
+      // Allow underscore-prefixed args/locals as an explicit
+      // "intentionally unused" marker (interface stubs, placeholder impls).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
     },
   },
 ])
