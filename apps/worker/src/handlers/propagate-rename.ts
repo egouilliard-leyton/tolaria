@@ -1,15 +1,70 @@
 import type { Job } from 'pg-boss'
+import { z } from 'zod'
+import { withTenant } from '../lib/db.js'
+import { enqueueIndexNote } from '../lib/jobs.js'
 
-// Stub handler for the `propagate-rename` queue. Producers in
-// apps/api/src/routes/rename.ts enqueue one job per rename so the worker can
-// rebuild the affected wikilinks + tsvectors out-of-band. The real implementation
-// will:
-//   1. Resolve every note that links to the renamed slug under the job's
-//      tenant context (withTenant from @tolaria/api).
-//   2. Rewrite `[[old]]` references to `[[new]]` inside body_md atomically.
-//   3. Rebuild note_links for the touched notes and re-enqueue index-note jobs.
-// Until then we accept and complete the job so the queue does not back up.
+// The producer in `apps/api/src/routes/rename.ts` sends every payload that
+// matches this schema. We accept both the old shape (just from/to paths)
+// and the new shape (which includes the explicit list of affected note
+// ids) so a queue with in-flight v1 messages does not break on rollout.
+const PropagateRenamePayload = z.object({
+  subscriptionId: z.string().uuid(),
+  vaultId: z.string().uuid(),
+  fromPath: z.string(),
+  toPath: z.string(),
+  fromSlug: z.string().optional(),
+  toSlug: z.string().optional(),
+  affectedNoteIds: z.array(z.string().uuid()).optional(),
+})
+export type PropagateRenamePayload = z.infer<typeof PropagateRenamePayload>
+
+/**
+ * After the rename SQL has rewritten every `[[from]]` body in the vault,
+ * `note_links` and `note_search.ts_doc` for those touched notes are stale.
+ * The cheapest fix is to re-fan the affected ids through `index-note`,
+ * which already knows how to rebuild both derived tables idempotently.
+ *
+ * If the producer did not provide `affectedNoteIds` (older shape), we
+ * resolve the candidate set ourselves: every non-deleted note in the
+ * vault whose body still contains `[[fromPath]]` or `[[toPath]]`. That
+ * is over-broad on purpose — re-indexing is cheap and idempotent.
+ */
 export async function handlePropagateRename(job: Job<unknown>): Promise<void> {
-  // TODO(agent search/rename): rebuild note_links + ts_doc for affected notes.
-  void job
+  const payload = PropagateRenamePayload.parse(job.data)
+
+  const noteIds = payload.affectedNoteIds ?? (await resolveAffectedIds(payload))
+
+  for (const id of noteIds) {
+    await enqueueIndexNote({
+      subscriptionId: payload.subscriptionId,
+      vaultId: payload.vaultId,
+      noteId: id,
+    })
+  }
+}
+
+async function resolveAffectedIds(
+  payload: PropagateRenamePayload,
+): Promise<string[]> {
+  const ctx = { subscriptionId: payload.subscriptionId }
+  return withTenant(ctx, async (client) => {
+    // Match either the old or new wikilink target so we cover the bodies
+    // the producer's SQL has already rewritten plus any straggler that
+    // still references the old slug (e.g. failed prior pass).
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM notes
+        WHERE vault_id = $1
+          AND deleted_at IS NULL
+          AND (body_md ~ $2 OR body_md ~ $3)`,
+      [payload.vaultId, anchored(payload.fromPath), anchored(payload.toPath)],
+    )
+    return rows.map((r) => r.id)
+  })
+}
+
+function anchored(slugOrPath: string): string {
+  // Anchor the regex against `[[...]]` so we don't false-match plain prose
+  // that happens to contain the slug as a substring. POSIX ERE escaping.
+  const escaped = slugOrPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return `\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`
 }
