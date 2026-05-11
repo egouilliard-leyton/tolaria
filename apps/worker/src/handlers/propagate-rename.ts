@@ -64,7 +64,16 @@ async function resolveAffectedIds(
 
 function anchored(slugOrPath: string): string {
   // Anchor the regex against `[[...]]` so we don't false-match plain prose
-  // that happens to contain the slug as a substring. POSIX ERE escaping.
-  const escaped = slugOrPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return `\\[\\[${escaped}(\\|[^\\]]*)?\\]\\]`
+  // that happens to contain the slug as a substring. We anchor on the
+  // *slug* (last segment after any folder prefix in slugOrPath) and
+  // optionally accept a folder prefix in the wikilink body, mirroring
+  // the route's regex in `apps/api/src/routes/rename.ts`. POSIX ERE
+  // escaping (no `\b`, so the folder prefix uses a literal `/`).
+  //
+  // See audit-2026-05-10 Bundle L (G68).
+  const slug = slugOrPath.includes('/')
+    ? slugOrPath.slice(slugOrPath.lastIndexOf('/') + 1)
+    : slugOrPath
+  const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return `\\[\\[([^\\]|]*/)?${escaped}(\\|[^\\]]*)?\\]\\]`
 }

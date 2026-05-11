@@ -33,7 +33,14 @@ import {
 } from '../lib/ai-events.js'
 import { sseStreamResponse } from '../lib/sse.js'
 import { readJson } from '../lib/validate.js'
-import { liteLlm, type ChatMessage, type ChatTool, type RawSseFrame } from '../services/litellm.js'
+import {
+  buildBudgetTags,
+  liteLlm,
+  type ChatMessage,
+  type ChatTool,
+  type RawSseFrame,
+} from '../services/litellm.js'
+import { estimateCostCents } from '../services/model-cost.js'
 import { listModels, resolveModel } from '../services/model-registry.js'
 import {
   decrementCredits,
@@ -165,7 +172,19 @@ async function* streamForRoute(args: RouteStreamArgs): AsyncIterable<AiStreamEve
 
   try {
     const upstreamFrames = liteLlm().streamChat(
-      { model, messages, tools },
+      {
+        model,
+        messages,
+        tools,
+        // Per-tenant cost attribution. See litellm.ts header (Bundle K /
+        // G48). LiteLLM strips these tags before forwarding upstream.
+        metadataTags: buildBudgetTags({
+          subscriptionId: tenant.subscriptionId,
+          userId: tenant.userId,
+          vaultId: body.vault_id,
+          kind: 'chat',
+        }),
+      },
       upstream.signal,
     )
 
@@ -213,11 +232,18 @@ async function* streamForRoute(args: RouteStreamArgs): AsyncIterable<AiStreamEve
   } finally {
     runQueues.dispose(runId)
 
+    // Bundle K (G49): record per-call cost in `ai_runs.cost_cents` so admin
+    // queries can roll up spend per (subscription, day, model) without
+    // re-deriving the pricing on every read. The factor table is pinned in
+    // `services/model-cost.ts`; unknown models record null and are
+    // surfaced in monitoring rather than silently zero-rated.
+    const costCents = estimateCostCents(model, promptTokens, completionTokens)
     await finishAiRun(tenant, runId, {
       status,
       inputTokens: promptTokens,
       outputTokens: completionTokens,
       error: errorMessage,
+      costCents,
     })
     await writeAudit(tenant, {
       action: status === 'succeeded' ? 'ai.run.success' : 'ai.run.failure',
@@ -226,6 +252,7 @@ async function* streamForRoute(args: RouteStreamArgs): AsyncIterable<AiStreamEve
         model,
         promptTokens,
         completionTokens,
+        ...(costCents !== null ? { costCents } : {}),
         ...(errorMessage ? { error: errorMessage } : {}),
       },
     })

@@ -54,6 +54,8 @@ interface UserRow {
   role: 'owner' | 'admin' | 'member'
   display_name: string | null
   password_hash: string | null
+  revoked_at: Date | null
+  last_seen_at: Date | null
   created_at: Date
   updated_at: Date
 }
@@ -68,24 +70,37 @@ interface UserResponse {
   updatedAt: string
 }
 
+function deriveStatus(row: UserRow): 'active' | 'invited' | 'revoked' {
+  // Status precedence — checked top-down (see migration 0006):
+  //   1. revoked_at IS NOT NULL                                       → 'revoked'
+  //   2. password_hash IS NULL AND last_seen_at IS NULL (never signed
+  //      in via OIDC or password)                                     → 'invited'
+  //   3. otherwise                                                    → 'active'
+  // We treat undefined as null so test fixtures that omit the columns
+  // still flow through the same branches (the DB never returns
+  // undefined for a selected column — only null or a value).
+  if (row.revoked_at !== null && row.revoked_at !== undefined) return 'revoked'
+  const hasPassword = row.password_hash !== null && row.password_hash !== undefined
+  const hasLastSeen = row.last_seen_at !== null && row.last_seen_at !== undefined
+  if (!hasPassword && !hasLastSeen) return 'invited'
+  return 'active'
+}
+
 function rowToResponse(row: UserRow): UserResponse {
   return {
     id: row.id,
     email: row.email,
     role: row.role,
     displayName: row.display_name,
-    // TODO: derive status properly once `users.revoked_at` and
-    // `users.last_seen_at` columns exist. The intended derivation is:
-    //   revoked_at IS NOT NULL                       → 'revoked'
-    //   password_hash IS NULL AND last_seen_at IS NULL → 'invited'
-    //   else                                          → 'active'
-    // Neither column is present in the v1 schema, so per the contract
-    // alignment plan we surface everyone as 'active' for now.
-    status: 'active',
+    status: deriveStatus(row),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   }
 }
+
+// Column list is centralized so every SELECT/RETURNING uses the same shape.
+const USER_COLUMNS =
+  'id, email, role, display_name, password_hash, revoked_at, last_seen_at, created_at, updated_at'
 
 // ── Sub-app ─────────────────────────────────────────────────────────────────
 
@@ -97,7 +112,7 @@ usersAdmin.get('/', async (c) => {
   const tenant = c.get('tenant')
   const rows = await withTenant(tenant, async (client) => {
     const r = await client.query<UserRow>(
-      `SELECT id, email, role, display_name, password_hash, created_at, updated_at
+      `SELECT ${USER_COLUMNS}
          FROM users
         WHERE subscription_id = $1
         ORDER BY created_at ASC`,
@@ -128,10 +143,13 @@ usersAdmin.post('/invite', adminMutatorRateLimit, async (c) => {
       throw Conflict('A user with this email already belongs to your subscription')
     }
 
+    // Invite: leave both `password_hash` and `last_seen_at` NULL (and
+    // `revoked_at` NULL by default) so `deriveStatus` returns 'invited'
+    // until the member completes sign-in for the first time.
     const insert = await client.query<UserRow>(
-      `INSERT INTO users (subscription_id, email, role, password_hash)
-       VALUES ($1, $2, $3, NULL)
-       RETURNING id, email, role, display_name, password_hash, created_at, updated_at`,
+      `INSERT INTO users (subscription_id, email, role, password_hash, last_seen_at, revoked_at)
+       VALUES ($1, $2, $3, NULL, NULL, NULL)
+       RETURNING ${USER_COLUMNS}`,
       [tenant.subscriptionId, email, role],
     )
     const row = insert.rows[0]
@@ -177,7 +195,7 @@ usersAdmin.patch('/:id', adminMutatorRateLimit, async (c) => {
 
   const updated = await withTenant(tenant, async (client) => {
     const current = await client.query<UserRow>(
-      `SELECT id, email, role, display_name, password_hash, created_at, updated_at
+      `SELECT ${USER_COLUMNS}
          FROM users
         WHERE id = $1
           AND subscription_id = $2`,
@@ -213,7 +231,7 @@ usersAdmin.patch('/:id', adminMutatorRateLimit, async (c) => {
               updated_at = now()
         WHERE id = $2
           AND subscription_id = $3
-        RETURNING id, email, role, display_name, password_hash, created_at, updated_at`,
+        RETURNING ${USER_COLUMNS}`,
       [newRole, userId, tenant.subscriptionId],
     )
     const row = upd.rows[0]
@@ -237,7 +255,7 @@ usersAdmin.delete('/:id', adminMutatorRateLimit, async (c) => {
 
   const result = await withTenant(tenant, async (client) => {
     const current = await client.query<UserRow>(
-      `SELECT id, email, role, display_name, password_hash, created_at, updated_at
+      `SELECT ${USER_COLUMNS}
          FROM users
         WHERE id = $1
           AND subscription_id = $2`,
@@ -262,7 +280,9 @@ usersAdmin.delete('/:id', adminMutatorRateLimit, async (c) => {
     }
 
     // Soft-revoke: clear refresh tokens, drop vault memberships, downgrade to
-    // member. We never hard-delete a user — the audit log references them.
+    // member, and stamp `revoked_at = now()` so `deriveStatus` returns
+    // 'revoked' for the admin listing. We never hard-delete a user — the
+    // audit log references them.
     await client.query(
       `UPDATE refresh_tokens
           SET revoked_at = now()
@@ -279,10 +299,11 @@ usersAdmin.delete('/:id', adminMutatorRateLimit, async (c) => {
     const upd = await client.query<UserRow>(
       `UPDATE users
           SET role = 'member',
+              revoked_at = now(),
               updated_at = now()
         WHERE id = $1
           AND subscription_id = $2
-        RETURNING id, email, role, display_name, password_hash, created_at, updated_at`,
+        RETURNING ${USER_COLUMNS}`,
       [userId, tenant.subscriptionId],
     )
     const after = upd.rows[0]

@@ -25,6 +25,13 @@ export interface AiRunFinishArgs {
   inputTokens?: number
   outputTokens?: number
   error?: string | null
+  /**
+   * Per-call cost estimate in whole cents (see
+   * `services/model-cost.ts::estimateCostCents`). `null` when the model
+   * is missing from the static cost table; the column stays NULL so
+   * rollups can detect coverage gaps. See migration 0007.
+   */
+  costCents?: number | null
 }
 
 /**
@@ -75,6 +82,7 @@ async function updateRun(
             input_tokens  = COALESCE($3, input_tokens),
             output_tokens = COALESCE($4, output_tokens),
             error         = $5,
+            cost_cents    = COALESCE($6, cost_cents),
             finished_at   = now()
       WHERE id = $1`,
     [
@@ -83,6 +91,7 @@ async function updateRun(
       args.inputTokens ?? null,
       args.outputTokens ?? null,
       args.error ?? null,
+      args.costCents ?? null,
     ],
   )
 }

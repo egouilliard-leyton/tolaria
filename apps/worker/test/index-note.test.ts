@@ -86,8 +86,17 @@ describe('handleIndexNote', () => {
     expect(insertCalls[1]!.values[2]).toBe('other-note')
   })
 
-  it('is a no-op when the note is soft-deleted (no row returned)', async () => {
+  it('cleans up note_search + note_links when the note is soft-deleted', async () => {
+    // Bundle L (G67): a soft-deleted note must have its derived rows
+    // removed so stale `note_search` entries cannot keep returning hits
+    // and so outgoing wikilinks from the deleted source do not keep
+    // pointing at it.
     const { handleIndexNote } = await import('../src/handlers/index-note.js')
+    // 1) SELECT note returns no rows (deleted or never existed).
+    nextResults.push({ rows: [], rowCount: 0 })
+    // 2) DELETE FROM note_search.
+    nextResults.push({ rows: [], rowCount: 1 })
+    // 3) DELETE FROM note_links.
     nextResults.push({ rows: [], rowCount: 0 })
 
     await handleIndexNote({
@@ -96,9 +105,12 @@ describe('handleIndexNote', () => {
       noteId: NOTE,
     })
 
-    // Only the SELECT — no upsert, no link rebuild.
-    expect(queries).toHaveLength(1)
+    expect(queries).toHaveLength(3)
     expect(queries[0]!.text).toMatch(/SELECT id, vault_id, title, body_md/)
+    expect(queries[1]!.text).toMatch(/DELETE FROM note_search WHERE note_id/)
+    expect(queries[1]!.values[0]).toBe(NOTE)
+    expect(queries[2]!.text).toMatch(/DELETE FROM note_links WHERE src_note_id/)
+    expect(queries[2]!.values[0]).toBe(NOTE)
   })
 
   it('skips link rebuild when body has no wikilinks but still upserts ts_doc', async () => {

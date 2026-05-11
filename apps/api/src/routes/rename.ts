@@ -137,23 +137,28 @@ async function runRename(
     [targetId, toSlug, newTitle],
   )
 
-  // Rewrite wikilinks in every other note. We match two distinct forms in
-  // a single regex via a top-level alternation:
+  // Rewrite wikilinks in every other note. The regex anchors on `[[ … ]]`
+  // and accepts an optional folder-prefix segment before the slug so
+  // notes wikilinking with `[[subfolder/from]]` are also rewritten:
   //
-  //   \[\[<from>(\|[^\]]*)?\]\]
+  //   \[\[(?:[^\]|]*/)?<fromSlug>(\|[^\]]*)?\]\]
   //
-  // The optional capturing group preserves the alias if present, and is
-  // re-inserted in the replacement using `\1`. The pattern is anchored on
-  // `\[\[` … `\]\]` so we never eat substrings of longer paths.
+  // Capture group 1 stays the alias (`|alias`) so the existing
+  // replacement (which re-inserts `\1`) keeps working. The non-capturing
+  // group `[^\]|]*/` matches any number of folder segments separated by
+  // `/` (POSIX ERE has no `\b`, so we use a literal `/` boundary instead).
+  // The folder prefix is intentionally dropped on rewrite — `toPath` is
+  // the new canonical reference so any prefix the source carried is
+  // discarded; that matches what the link graph stores.
   //
-  // To know how many links were rewritten we count occurrences via
-  // regexp_matches('g'), which returns one row per match. We do that in a
-  // separate CTE projection rather than relying on the Postgres-15-only
-  // regexp_count function.
+  // See audit-2026-05-10 Bundle L (G68).
 
-  const pathLiteral = escapeRegex(fromPath)
-  const pattern = `\\[\\[${pathLiteral}(\\|[^\\]]*)?\\]\\]`
-  const replacement = `[[${toPath.replace(/\\/g, '\\\\').replace(/&/g, '\\&')}\\1]]`
+  const slugLiteral = escapeRegex(fromSlug)
+  const pattern = `\\[\\[([^\\]|]*/)?${slugLiteral}(\\|[^\\]]*)?\\]\\]`
+  // The replacement re-inserts capture group 2 (the alias) and drops
+  // group 1 (the folder prefix) so the rewritten link is the canonical
+  // `[[toPath]]` or `[[toPath|alias]]`.
+  const replacement = `[[${toPath.replace(/\\/g, '\\\\').replace(/&/g, '\\&')}\\2]]`
 
   const updateRes = await client.query<{
     id: string

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { tenantQuery } from '../db.js'
 import { Unauthenticated } from '../lib/errors.js'
+import { stampLastSeen } from '../lib/last-seen.js'
 
 // `GET /me` returns the smallest blob the SPA needs to render the chrome:
 // the current user record, the subscription summary, and the user's role
@@ -48,6 +49,11 @@ me.get('/me', async (c) => {
   )
   const subRow = subResult.rows[0]
   if (!subRow) throw Unauthenticated('Subscription no longer exists')
+
+  // Best-effort: stamp last_seen_at so the admin listing can flip the user
+  // out of the `invited` bucket after their first successful session
+  // probe. See migration 0006 + audit-2026-05-10 Bundle I.
+  await stampLastSeen(tenant)
 
   return c.json({
     user: {

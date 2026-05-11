@@ -114,6 +114,8 @@ function userRow(over: Partial<Record<string, unknown>> = {}) {
     role: 'member',
     display_name: null,
     password_hash: null,
+    revoked_at: null,
+    last_seen_at: null,
     created_at: new Date('2026-05-01T00:00:00Z'),
     updated_at: new Date('2026-05-01T00:00:00Z'),
     ...over,
@@ -149,6 +151,69 @@ describe('GET /admin/users', () => {
     expect(body[0]).toHaveProperty('updatedAt')
     expect(body[0]).toHaveProperty('status')
     expect(JSON.stringify(body)).not.toContain('password_hash')
+    expect(JSON.stringify(body)).not.toContain('revoked_at')
+    expect(JSON.stringify(body)).not.toContain('last_seen_at')
+  })
+
+  // Bundle I §1 — status derived from real columns, not pinned to 'active'.
+  // The three branches in `deriveStatus`:
+  //   revoked_at IS NOT NULL                                  → 'revoked'
+  //   password_hash IS NULL AND last_seen_at IS NULL          → 'invited'
+  //   else                                                    → 'active'
+  it('derives status=revoked when revoked_at is set', async () => {
+    const app = await buildApp('owner')
+    fakeClient.responses.push({
+      rows: [userRow({ revoked_at: new Date('2026-05-02T00:00:00Z') })],
+    })
+    const res = await app.request('/admin/users')
+    const body = (await res.json()) as Array<{ status: string }>
+    expect(body[0]!.status).toBe('revoked')
+  })
+
+  it('derives status=invited when password_hash and last_seen_at are both NULL', async () => {
+    const app = await buildApp('owner')
+    fakeClient.responses.push({
+      rows: [
+        userRow({ password_hash: null, last_seen_at: null, revoked_at: null }),
+      ],
+    })
+    const res = await app.request('/admin/users')
+    const body = (await res.json()) as Array<{ status: string }>
+    expect(body[0]!.status).toBe('invited')
+  })
+
+  it('derives status=active when the user has signed in or has a password', async () => {
+    const app = await buildApp('owner')
+    fakeClient.responses.push({
+      rows: [
+        userRow({
+          password_hash: null,
+          last_seen_at: new Date('2026-05-02T00:00:00Z'),
+          revoked_at: null,
+        }),
+      ],
+    })
+    const res = await app.request('/admin/users')
+    const body = (await res.json()) as Array<{ status: string }>
+    expect(body[0]!.status).toBe('active')
+  })
+
+  it('revoked_at wins over a NULL password_hash + NULL last_seen_at', async () => {
+    // Edge case: a never-signed-in user gets revoked. revoked_at takes
+    // precedence so admins see the action they just took.
+    const app = await buildApp('owner')
+    fakeClient.responses.push({
+      rows: [
+        userRow({
+          password_hash: null,
+          last_seen_at: null,
+          revoked_at: new Date('2026-05-02T00:00:00Z'),
+        }),
+      ],
+    })
+    const res = await app.request('/admin/users')
+    const body = (await res.json()) as Array<{ status: string }>
+    expect(body[0]!.status).toBe('revoked')
   })
 })
 
@@ -345,6 +410,13 @@ describe('DELETE /admin/users/:id', () => {
     ).toBeTruthy()
     expect(
       fakeClient.calls.find((c) => c.text.includes('DELETE FROM vault_members')),
+    ).toBeTruthy()
+    // Bundle I §1 — the UPDATE users branch must stamp revoked_at = now()
+    // so the admin listing flips the row to 'revoked' on the next read.
+    expect(
+      fakeClient.calls.find(
+        (c) => c.text.includes('UPDATE users') && c.text.includes('revoked_at = now()'),
+      ),
     ).toBeTruthy()
     const audit = fakeClient.calls.find((c) => c.text.includes('INSERT INTO audit_log'))
     expect(audit?.values?.[2]).toBe('user.revoke')

@@ -11,6 +11,7 @@ import { withPlatformContext, withTenant, type PgClient } from '../db.js'
 import { loadEnv } from '../env.js'
 import { clientIp } from '../lib/client-ip.js'
 import { Forbidden, InvalidInput, Unauthenticated } from '../lib/errors.js'
+import { stampLastSeen } from '../lib/last-seen.js'
 import { logger } from '../lib/logger.js'
 import { mintAccessToken, type AccessTokenClaims } from '../middleware/auth.js'
 import { AUTH_RATE_LIMIT, rateLimit } from '../middleware/rate-limit.js'
@@ -336,6 +337,11 @@ auth.post('/auth/refresh', async (c) => {
     `refresh:${next.id}`,
     {},
   )
+  // Stamp last_seen_at so the admin listing knows the user is reachable.
+  // Best-effort: see lib/last-seen.ts. Audit and refresh-cookie are
+  // already committed at this point — a swallowed failure leaves the
+  // member at their previous status only.
+  await stampLastSeen({ subscriptionId: ctx.subscriptionId, userId: ctx.userId })
   return c.json({
     access_token: accessToken,
     token_type: 'Bearer',

@@ -62,8 +62,15 @@ async function runRenameSql(
     [targetId, toPath, toPath],
   )
 
-  const pattern = `\\[\\[${escapeRegex(fromPath)}(\\|[^\\]]*)?\\]\\]`
-  const replacement = `[[${toPath.replace(/\\/g, '\\\\').replace(/&/g, '\\&')}\\1]]`
+  // Mirror the production regex shape: anchor on `[[`, optional folder
+  // prefix (`subfolder/`), the from-slug, optional alias, `]]`. Capture
+  // group 2 is the alias (re-inserted in the replacement); the folder
+  // prefix in group 1 is intentionally dropped on rewrite.
+  const fromSlug = fromPath.includes('/')
+    ? fromPath.slice(fromPath.lastIndexOf('/') + 1)
+    : fromPath
+  const pattern = `\\[\\[([^\\]|]*/)?${escapeRegex(fromSlug)}(\\|[^\\]]*)?\\]\\]`
+  const replacement = `[[${toPath.replace(/\\/g, '\\\\').replace(/&/g, '\\&')}\\2]]`
 
   const upd = await client.query<{ id: string; rewritten: string }>(
     `WITH targets AS (
@@ -219,6 +226,36 @@ describe.skipIf(!available)('rename — atomic wikilink rewrite', () => {
       return r.rows[0]!.body_md
     })
     expect(body).toBe('these should not change: [[foobar]] [[foo-baz]]')
+  })
+
+  it('rewrites folder-prefixed wikilinks like [[subfolder/from]]', async () => {
+    // Bundle L (G68) — the rename SQL must catch
+    // `[[subfolder/from]]` and `[[subfolder/from|alias]]`, not just bare
+    // `[[from]]`. The folder prefix is dropped on rewrite so the new
+    // link is the canonical `[[to]]`.
+    await createNote(tenant, vaultId, 'old-name', 'target')
+    const linker = await createNote(
+      tenant,
+      vaultId,
+      'linker',
+      'See [[notes/old-name]] and [[deep/path/old-name|the alias]] and bare [[old-name]].',
+    )
+
+    const result = await withTestTenant(tenant, (client) =>
+      runRenameSql(client, vaultId, 'old-name', 'new-name'),
+    )
+
+    expect(result.updatedLinkCount).toBe(3)
+    const body = await withTestTenant(tenant, async (client) => {
+      const r = await client.query<{ body_md: string }>(
+        `SELECT body_md FROM notes WHERE id = $1`,
+        [linker],
+      )
+      return r.rows[0]!.body_md
+    })
+    expect(body).toBe(
+      'See [[new-name]] and [[new-name|the alias]] and bare [[new-name]].',
+    )
   })
 
   afterEach(async () => {

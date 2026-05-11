@@ -12,6 +12,35 @@
 // usage / etc.) lives in the route handler — that lets us keep this file
 // pure HTTP plumbing and unit-test the translation without spinning up an
 // actual LiteLLM mock.
+//
+// ── Wire shape (LiteLLM request body) ──────────────────────────────────────
+//
+// `streamChat` POSTs to `/v1/chat/completions` with the OpenAI-compatible
+// JSON body LiteLLM expects, plus a `metadata.tags` array that LiteLLM
+// strips out of the upstream request and uses for per-tag cost
+// attribution in its built-in audit log (see audit-2026-05-10 Bundle K /
+// G48). The tag set is opaque to LiteLLM — by convention we emit:
+//
+//   {
+//     "model":    "<route>",            // resolved from ai_models
+//     "messages": [ … ],
+//     "tools":    [ … ],                // optional
+//     "stream":   true,
+//     "metadata": {
+//       "tags": [
+//         "subscription:<uuid>",        // pinning spend to a tenant
+//         "vault:<uuid>",               // pinning spend to a vault
+//         "user:<uuid>",                // pinning spend to a user
+//         "kind:chat|agent|embedding"   // call class
+//       ]
+//     }
+//   }
+//
+// Tags are stripped before forwarding to the upstream model (LiteLLM
+// already drops the `metadata` field; the upstream provider never sees
+// our tenant ids). The embedding pipeline in
+// `apps/worker/src/services/embeddings.ts` emits the same shape with
+// `kind:embedding`.
 
 import { loadEnv } from '../env.js'
 import { UpstreamUnavailable } from '../lib/errors.js'
@@ -38,6 +67,14 @@ export interface StreamChatArgs {
   model: string
   messages: ChatMessage[]
   tools?: ChatTool[]
+  /**
+   * Opaque tags forwarded to LiteLLM as `metadata.tags`. LiteLLM strips
+   * these before contacting the upstream provider and uses them to
+   * attribute spend per-tenant in its audit log. Callers should include
+   * `subscription:<uuid>`, `vault:<uuid>`, `user:<uuid>`, and
+   * `kind:<chat|agent|embedding>` at minimum. See module header.
+   */
+  metadataTags?: ReadonlyArray<string>
 }
 
 /**
@@ -89,11 +126,15 @@ export function createLiteLlmClient(opts?: {
 
   return {
     async *streamChat(args, signal): AsyncIterable<RawSseFrame> {
+      const tags = args.metadataTags && args.metadataTags.length > 0
+        ? Array.from(args.metadataTags)
+        : undefined
       const body = JSON.stringify({
         model: args.model,
         messages: args.messages,
         tools: args.tools,
         stream: true,
+        ...(tags ? { metadata: { tags } } : {}),
       })
       let res: Response
       try {
@@ -216,4 +257,25 @@ let cached: LiteLlmClient | null = null
 export function liteLlm(): LiteLlmClient {
   if (!cached) cached = createLiteLlmClient()
   return cached
+}
+
+/**
+ * Compose the canonical `metadata.tags` array. Centralized so every call
+ * site emits identically-shaped tags and a tag rename only happens in one
+ * place. `vaultId` is optional because some routes (e.g. /ai/agent/run
+ * with no vault scope) cannot supply one.
+ */
+export function buildBudgetTags(args: {
+  subscriptionId: string
+  userId: string
+  vaultId?: string | null
+  kind: 'chat' | 'agent' | 'embedding'
+}): string[] {
+  const tags: string[] = [
+    `subscription:${args.subscriptionId}`,
+    `user:${args.userId}`,
+    `kind:${args.kind}`,
+  ]
+  if (args.vaultId) tags.splice(1, 0, `vault:${args.vaultId}`)
+  return tags
 }

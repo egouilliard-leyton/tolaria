@@ -30,10 +30,12 @@ import {
 import { sseStreamResponse } from '../lib/sse.js'
 import { readJson } from '../lib/validate.js'
 import {
+  buildBudgetTags,
   liteLlm,
   type ChatMessage,
   type ChatTool,
 } from '../services/litellm.js'
+import { estimateCostCents } from '../services/model-cost.js'
 import { resolveModel } from '../services/model-registry.js'
 import {
   decrementCredits,
@@ -149,7 +151,18 @@ async function* streamAgentLoop(
   try {
     while (safety-- > 0) {
       const upstreamFrames = liteLlm().streamChat(
-        { model, messages, tools },
+        {
+          model,
+          messages,
+          tools,
+          // Per-tenant cost attribution. See litellm.ts header.
+          metadataTags: buildBudgetTags({
+            subscriptionId: tenant.subscriptionId,
+            userId: tenant.userId,
+            vaultId: body.vault_id,
+            kind: 'agent',
+          }),
+        },
         upstream.signal,
       )
 
@@ -296,11 +309,14 @@ async function* streamAgentLoop(
     errorMessage = err instanceof Error ? err.message : 'stream failed'
     yield { type: 'error', message: errorMessage }
   } finally {
+    // Bundle K (G49): record per-call cost on `ai_runs.cost_cents`.
+    const costCents = estimateCostCents(model, promptTokens, completionTokens)
     await finishAiRun(tenant, runId, {
       status,
       inputTokens: promptTokens,
       outputTokens: completionTokens,
       error: errorMessage,
+      costCents,
     })
     await writeAudit(tenant, {
       action: status === 'succeeded' ? 'ai.run.success' : 'ai.run.failure',
@@ -310,6 +326,7 @@ async function* streamAgentLoop(
         promptTokens,
         completionTokens,
         agent: true,
+        ...(costCents !== null ? { costCents } : {}),
         ...(errorMessage ? { error: errorMessage } : {}),
       },
     })

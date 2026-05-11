@@ -35,6 +35,16 @@ export interface EmbedTextOptions {
   fetchImpl?: typeof fetch
   /** Override the default 5s request timeout (ms). */
   timeoutMs?: number
+  /**
+   * Opaque tags forwarded to LiteLLM as `metadata.tags`. LiteLLM strips
+   * them before contacting the upstream embeddings provider and uses
+   * them for per-tenant cost attribution. See
+   * `apps/api/src/services/litellm.ts` header for the canonical shape.
+   * The index-note handler emits at minimum:
+   *   subscription:<uuid>, vault:<uuid>, user:<uuid> (when known),
+   *   kind:embedding
+   */
+  metadataTags?: ReadonlyArray<string>
 }
 
 /**
@@ -53,6 +63,10 @@ export async function embedText(
   const fetchImpl = opts.fetchImpl ?? fetch
   const timeoutMs = opts.timeoutMs ?? 5_000
 
+  const tags = opts.metadataTags && opts.metadataTags.length > 0
+    ? Array.from(opts.metadataTags)
+    : undefined
+
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -62,7 +76,11 @@ export async function embedText(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ model, input: text }),
+      body: JSON.stringify({
+        model,
+        input: text,
+        ...(tags ? { metadata: { tags } } : {}),
+      }),
       signal: controller.signal,
     })
     if (!res.ok) {

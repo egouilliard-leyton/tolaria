@@ -155,11 +155,21 @@ policy that allows access only when
 
 ```
 subscriptions (id, name, plan, ai_credits_remaining, created_at)
-users         (id, subscription_id, email, role, created_at)
+users         (id, subscription_id, email, role, password_hash nullable,
+               display_name nullable, revoked_at nullable,
+               last_seen_at nullable, created_at, updated_at)
               role: 'owner' | 'admin' | 'member'
+              -- revoked_at: stamped when DELETE /admin/users/:id soft-revokes
+              --             a member. NULL means active.
+              -- last_seen_at: stamped on every successful /auth/refresh and
+              --               /me response. NULL means "never signed in
+              --               since the invite was issued."
+              -- These two columns drive the admin-listing
+              -- status: 'invited' | 'active' | 'revoked' derivation; see
+              -- migration 0006_users_status_columns.sql.
 
 sso_providers (id, subscription_id, name, issuer_url, client_id,
-               client_secret_enc, scopes_json, default_role,
+               client_secret_enc, scopes text[], default_role,
                jit_provisioning, created_at)
               -- one Authentik fallback row with subscription_id = NULL is
               -- allowed via a partial unique index for the platform default.
@@ -188,6 +198,23 @@ ai_models     (id, subscription_id nullable, provider, name, display_name,
               -- subscription_id null = platform-global model (Authentik
               -- equivalent fallback for AI). Subscription owners can add
               -- their own.
+
+ai_runs       (id, subscription_id, vault_id nullable, user_id nullable,
+               model, status, input_tokens, output_tokens,
+               cost_cents nullable, started_at, finished_at, error)
+              -- one row per /ai/chat or /ai/agent/run call. cost_cents
+              -- is computed in-process via the static per-model cost
+              -- table (apps/api/src/services/model-cost.ts) and stays
+              -- NULL when the model is missing from the table so finance
+              -- rollups can detect coverage gaps. See migration
+              -- 0007_ai_runs_cost.sql and ADR-0117/0118/0120.
+
+embedding_budgets (subscription_id, day, cents_spent)
+              -- per-tenant daily ledger consulted by the index-note
+              -- worker before each embedding call. The worker skips the
+              -- call (and logs an "embedding skipped: daily budget
+              -- exhausted" event) when the day's total would exceed the
+              -- configured cap. See migration 0005_embedding_budgets.sql.
 
 audit_log     (id, subscription_id, actor_user_id, action, target, meta_jsonb,
                created_at)
@@ -269,6 +296,10 @@ GET    /vaults/:id/search       ?q=&mode=full|prefix&limit=
 
 POST   /vaults/:id/attachments  body: { mime, size, sha256 }
                                 returns: { id, put_url, get_url, key }
+POST   /attachments/:id/verify  client confirms PUT landed; API HEADs R2 and
+                                sets verified_at. ADR-0116 §4. Unverified
+                                rows older than R2_UNVERIFIED_GRACE_INTERVAL
+                                are swept by the worker — see ADR-0119.
 GET    /attachments/:id         redirect to time-limited GET URL
 
 POST   /ai/chat                 (SSE)  { vault_id, model, messages, tools }
@@ -281,6 +312,16 @@ PATCH  /admin/sso/providers/:id
 DELETE /admin/sso/providers/:id
 GET    /admin/users             list members + invite UI
 POST   /admin/users/invite      { email, role }
+PATCH  /admin/users/:id         { role } — sole-owner demote guarded
+DELETE /admin/users/:id         soft-revoke (sets users.revoked_at = now())
+POST   /admin/vaults/:id/reindex
+                                owner-or-admin; enqueues `backfill-embeddings`
+                                so the worker walks every non-deleted note
+                                and fans them through `index-note`. Used to
+                                populate `note_search.embedding` after
+                                turning on `LITELLM_EMBEDDING_MODEL` or to
+                                recover from an outage that drained the
+                                queue. Returns `202 { accepted, jobId }`.
 
 GET    /healthz                 liveness
 GET    /readyz                  DB ping + R2 ping + LiteLLM ping

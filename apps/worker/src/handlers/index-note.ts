@@ -58,7 +58,20 @@ export async function handleIndexNote(payload: IndexNotePayload): Promise<void> 
     )
     const note = rows[0]
     if (!note) {
-      // Deleted or never existed — handler is a no-op so reruns are safe.
+      // Soft-deleted or never existed. Clean up the derived rows so a
+      // stale `note_search` entry cannot keep returning hits and a
+      // soft-deleted note's outgoing wikilinks cannot keep pointing at
+      // it. The cascade on `notes.deleted_at` does not run for soft
+      // deletes — only the hard-DELETE retention worker triggers the
+      // FK cascade. See audit-2026-05-10 Bundle L (G67).
+      await client.query(
+        `DELETE FROM note_search WHERE note_id = $1`,
+        [payload.noteId],
+      )
+      await client.query(
+        `DELETE FROM note_links WHERE src_note_id = $1`,
+        [payload.noteId],
+      )
       return
     }
 
@@ -96,7 +109,18 @@ export async function handleIndexNote(payload: IndexNotePayload): Promise<void> 
             'embedding skipped: daily budget exhausted',
           )
         } else {
-          const embedding = await embedText(embedInput, env.LITELLM_EMBEDDING_MODEL)
+          const embedding = await embedText(embedInput, env.LITELLM_EMBEDDING_MODEL, {
+            // Per-tenant cost attribution. Mirrors the chat/agent route
+            // shape in `apps/api/src/services/litellm.ts`. We do not know
+            // the originating user id from a worker job (the index queue
+            // is producer-agnostic) so the `user:` tag is intentionally
+            // omitted. See audit-2026-05-10 Bundle K (G48).
+            metadataTags: [
+              `subscription:${payload.subscriptionId}`,
+              `vault:${payload.vaultId}`,
+              `kind:embedding`,
+            ],
+          })
           if (embedding.length !== env.EMBEDDING_DIMS) {
             logger.warn(
               {
