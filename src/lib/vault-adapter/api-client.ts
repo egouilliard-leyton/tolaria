@@ -127,20 +127,36 @@ export class ApiClient {
     return replay
   }
 
-  /** Send a single attempt. No refresh, no error mapping. */
-  private send(path: string, init: RequestInit): Promise<Response> {
+  /**
+   * Send a single attempt. No refresh, no error mapping for HTTP errors —
+   * but network-level failures (fetch rejects: offline, DNS, CORS preflight)
+   * are converted into a canonical `ApiError` with `status === 0` and
+   * `code === 'network_unavailable'` so the AuthProvider can drive the
+   * "Cloud unreachable" UI without having to know about raw TypeErrors.
+   */
+  private async send(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers ?? {})
     if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
     if (init.body !== undefined && !headers.has('Content-Type') && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
     headers.set('Accept', headers.get('Accept') ?? 'application/json')
-    return this.fetchImpl(this.url(path), {
-      ...init,
-      headers,
-      // Always include the refresh cookie on cross-origin calls.
-      credentials: init.credentials ?? 'include',
-    })
+    try {
+      return await this.fetchImpl(this.url(path), {
+        ...init,
+        headers,
+        // Always include the refresh cookie on cross-origin calls.
+        credentials: init.credentials ?? 'include',
+      })
+    } catch (err) {
+      // `fetch` rejects with TypeError on network-level failure. Surface a
+      // typed ApiError so callers can `instanceof` check rather than
+      // pattern-match on TypeError text.
+      throw new ApiError(0, {
+        code: 'network_unavailable',
+        message: err instanceof Error ? err.message : 'network unavailable',
+      })
+    }
   }
 
   /**

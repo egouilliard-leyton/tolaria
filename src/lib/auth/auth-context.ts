@@ -26,6 +26,15 @@ export interface AuthState {
   role: AuthRole | null
   isAuthenticated: boolean
   isLoading: boolean
+  /**
+   * Whether the Tolaria Cloud API is currently reachable. `null` while the
+   * initial probe is in flight, `true` once any API call has succeeded, and
+   * `false` once an API call has failed with a network-level error (offline,
+   * DNS, CORS preflight failure, or the server is down). The web build
+   * surfaces this through a "Cloud unreachable" banner so users understand
+   * why recent edits are queued rather than persisted (G73).
+   */
+  cloudReachable: boolean | null
   login: (providerId?: string) => void
   logout: () => Promise<void>
   refresh: () => Promise<void>

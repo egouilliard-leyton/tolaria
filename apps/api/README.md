@@ -82,6 +82,21 @@ pnpm --filter @tolaria/api test
 Tests run against a real Postgres (set `DATABASE_URL` to a disposable test DB).
 RLS policies are exercised end-to-end so isolation regressions fail at CI.
 
+### Integration suite (one-shot)
+
+The 12 SQL-direct tests skip locally because they need a live Postgres. The
+root `pnpm test:integration` script boots the Postgres container from
+`docker-compose.yml`, runs `pnpm db:migrate`, then executes the API and
+worker suites against it:
+
+```bash
+pnpm test:integration
+```
+
+The script lives at `scripts/test-integration.sh`. CI runs the suites
+under `pnpm --filter` against a managed Postgres; this script is for
+local development.
+
 ## Web build
 
 The browser-only frontend that talks to this API is produced from the same

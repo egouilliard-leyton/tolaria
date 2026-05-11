@@ -22,7 +22,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { withTenant, type PgClient, type TenantContext } from '../db.js'
-import { Forbidden, NotFound } from '../lib/errors.js'
+import { NotFound } from '../lib/errors.js'
 import {
   AiStreamRequestSchema,
   type AiStreamEvent,
@@ -43,6 +43,8 @@ import {
   startAiRun,
   writeAudit,
 } from '../jobs/ai-runs.js'
+import { enqueue } from '../jobs/index.js'
+import { logger } from '../lib/logger.js'
 import { toNote, toNoteSummary, wordCount } from '../lib/mappers.js'
 import { ensureUniqueSlug, slugify } from '../lib/slug.js'
 import { AI_RATE_LIMIT, rateLimit } from '../middleware/rate-limit.js'
@@ -356,10 +358,15 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
     function: {
       name: 'vault.search',
       description:
-        'Search the active vault for notes matching a query. Returns up to 25 results sorted by relevance.',
+        'Search a specific vault for notes matching a query. Returns up to 25 results sorted by relevance.',
       parameters: {
         type: 'object',
         properties: {
+          vault_id: {
+            type: 'string',
+            format: 'uuid',
+            description: 'UUID of the vault to search.',
+          },
           query: { type: 'string', description: 'Search text.' },
           mode: {
             type: 'string',
@@ -368,7 +375,7 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
               'full = phrase/keyword (default), prefix = quick-open style trigram match.',
           },
         },
-        required: ['query'],
+        required: ['vault_id', 'query'],
         additionalProperties: false,
       },
     },
@@ -378,15 +385,21 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
     function: {
       name: 'vault.list_notes',
       description:
-        'List the most recently modified notes in the active vault, optionally filtered to a folder.',
+        'List the most recently modified notes in a specific vault, optionally filtered to a folder.',
       parameters: {
         type: 'object',
         properties: {
+          vault_id: {
+            type: 'string',
+            format: 'uuid',
+            description: 'UUID of the vault to list notes from.',
+          },
           folder_id: {
             type: ['string', 'null'],
             description: 'Folder UUID, or null for root-level notes.',
           },
         },
+        required: ['vault_id'],
         additionalProperties: false,
       },
     },
@@ -400,9 +413,14 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
       parameters: {
         type: 'object',
         properties: {
+          vault_id: {
+            type: 'string',
+            format: 'uuid',
+            description: 'UUID of the vault the note belongs to.',
+          },
           note_id: { type: 'string', description: 'Note UUID.' },
         },
-        required: ['note_id'],
+        required: ['vault_id', 'note_id'],
         additionalProperties: false,
       },
     },
@@ -412,10 +430,15 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
     function: {
       name: 'vault.create_note',
       description:
-        'Create a new note in the active vault. Returns the new note id and slug.',
+        'Create a new note in a specific vault. Returns the new note id and slug.',
       parameters: {
         type: 'object',
         properties: {
+          vault_id: {
+            type: 'string',
+            format: 'uuid',
+            description: 'UUID of the vault to create the note in.',
+          },
           folder_id: {
             type: ['string', 'null'],
             description: 'Folder UUID or null for the vault root.',
@@ -423,7 +446,7 @@ const AGENT_TOOL_SCHEMAS: ChatTool[] = [
           title: { type: 'string', description: 'Note title.' },
           body_md: { type: 'string', description: 'Markdown body.' },
         },
-        required: ['title'],
+        required: ['vault_id', 'title'],
         additionalProperties: false,
       },
     },
@@ -520,6 +543,7 @@ async function runVaultSearch(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<unknown> {
+  const vaultId = asString(args.vault_id, 'vault_id')
   const query = asString(args.query, 'query')
   const modeRaw = typeof args.mode === 'string' ? args.mode : 'full'
   const mode: 'full' | 'prefix' = modeRaw === 'prefix' ? 'prefix' : 'full'
@@ -544,13 +568,14 @@ async function runVaultSearch(
                 ) AS score
            FROM notes n
           WHERE n.deleted_at IS NULL
+            AND n.vault_id = $3
             AND (n.title ILIKE $1 || '%'
                  OR n.slug ILIKE $1 || '%'
                  OR n.title % $1
                  OR n.slug % $1)
           ORDER BY score DESC, n.modified_at DESC
           LIMIT $2`,
-        [query, limit],
+        [query, limit, vaultId],
       )
       return {
         mode,
@@ -587,12 +612,13 @@ async function runVaultSearch(
          CROSS JOIN q
          LEFT JOIN note_search s ON s.note_id = n.id
         WHERE n.deleted_at IS NULL
+          AND n.vault_id = $3
           AND COALESCE(s.ts_doc,
                        to_tsvector('simple', coalesce(n.title, '') || ' ' || coalesce(n.body_md, '')))
               @@ q.tsq
         ORDER BY score DESC, n.modified_at DESC
         LIMIT $2`,
-      [query, limit],
+      [query, limit, vaultId],
     )
     return {
       mode,
@@ -622,14 +648,15 @@ async function runVaultListNotes(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<unknown> {
+  const vaultId = asString(args.vault_id, 'vault_id')
   const folderId =
     args.folder_id === undefined || args.folder_id === null
       ? null
       : asString(args.folder_id, 'folder_id')
 
   return withTenant(ctx.tenant, async (client) => {
-    const params: unknown[] = [50]
-    let where = `deleted_at IS NULL`
+    const params: unknown[] = [50, vaultId]
+    let where = `deleted_at IS NULL AND vault_id = $2`
     if (folderId !== null) {
       params.push(folderId)
       where += ` AND folder_id = $${params.length}`
@@ -650,13 +677,14 @@ async function runVaultGetNote(
   args: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<unknown> {
+  const vaultId = asString(args.vault_id, 'vault_id')
   const noteId = asString(args.note_id, 'note_id')
   return withTenant(ctx.tenant, async (client) => {
     const r = await client.query(
       `SELECT id, vault_id, folder_id, slug, title, body_md, frontmatter,
               word_count, version, created_at, modified_at
-         FROM notes WHERE id = $1 AND deleted_at IS NULL`,
-      [noteId],
+         FROM notes WHERE id = $1 AND vault_id = $2 AND deleted_at IS NULL`,
+      [noteId, vaultId],
     )
     if (r.rowCount === 0) throw NotFound('note not found')
     return toNote(r.rows[0])
@@ -668,6 +696,7 @@ async function runVaultCreateNote(
   ctx: ToolContext,
 ): Promise<unknown> {
   const title = asString(args.title, 'title')
+  const vaultIdArg = asString(args.vault_id, 'vault_id')
   const folderId =
     args.folder_id === undefined || args.folder_id === null
       ? null
@@ -675,14 +704,13 @@ async function runVaultCreateNote(
   const bodyMd = typeof args.body_md === 'string' ? args.body_md : ''
   const baseSlug = slugify(title)
 
-  return withTenant(ctx.tenant, async (client) => {
-    const vaultId = await pickVaultId(client, folderId)
-    if (folderId) await assertFolderInVault(client, folderId, vaultId)
+  const note = await withTenant(ctx.tenant, async (client) => {
+    if (folderId) await assertFolderInVault(client, folderId, vaultIdArg)
 
     const slug = await ensureUniqueSlug(baseSlug, async (candidate) => {
       const r = await client.query(
         `SELECT 1 FROM notes WHERE vault_id = $1 AND slug = $2`,
-        [vaultId, candidate],
+        [vaultIdArg, candidate],
       )
       return r.rowCount !== null && r.rowCount > 0
     })
@@ -693,7 +721,7 @@ async function runVaultCreateNote(
        RETURNING id, vault_id, folder_id, slug, title, body_md, frontmatter,
                  word_count, version, created_at, modified_at`,
       [
-        vaultId,
+        vaultIdArg,
         folderId,
         slug,
         title,
@@ -703,8 +731,15 @@ async function runVaultCreateNote(
         ctx.tenant.userId,
       ],
     )
-    return toNote(r.rows[0])
+    return r.rows[0]
   })
+
+  // Mirror the human-write path in routes/notes.ts:226 — every successful
+  // write must enqueue an `index-note` job so `note_search`/`note_links`
+  // converge. Best-effort: if the enqueue fails, log and continue so the
+  // model-driven write still succeeds.
+  await enqueueIndexNote(ctx.tenant.subscriptionId, note.vault_id, note.id)
+  return toNote(note)
 }
 
 async function runVaultWriteNote(
@@ -715,7 +750,7 @@ async function runVaultWriteNote(
   const bodyMd = asString(args.body_md, 'body_md')
   const expectedVersion = asInt(args.expected_version, 'expected_version')
 
-  return withTenant(ctx.tenant, async (client) => {
+  const updated = await withTenant(ctx.tenant, async (client) => {
     const cur = await client.query<{
       version: number
       frontmatter: Record<string, unknown>
@@ -743,30 +778,29 @@ async function runVaultWriteNote(
                   word_count, version, created_at, modified_at`,
       [noteId, bodyMd, wordCount(bodyMd)],
     )
-    return toNote(r.rows[0])
+    return r.rows[0]
   })
+
+  // Mirror the human-write path in routes/notes.ts:226 — see runVaultCreateNote.
+  await enqueueIndexNote(ctx.tenant.subscriptionId, updated.vault_id, updated.id)
+  return toNote(updated)
 }
 
-async function pickVaultId(
-  client: PgClient,
-  folderId: string | null,
-): Promise<string> {
-  if (folderId) {
-    const f = await client.query<{ vault_id: string }>(
-      `SELECT vault_id FROM folders WHERE id = $1`,
-      [folderId],
-    )
-    if (f.rowCount === 0) throw NotFound('folder not found')
-    return f.rows[0]!.vault_id
+/**
+ * Best-effort enqueue of the `index-note` job after an AI-driven write. The
+ * `enqueue` helper already swallows its own errors, but we double-log here so
+ * a future change that reintroduces a throw can still complete the tool call.
+ */
+async function enqueueIndexNote(
+  subscriptionId: string,
+  vaultId: string,
+  noteId: string,
+): Promise<void> {
+  try {
+    await enqueue('index-note', { subscriptionId, vaultId, noteId })
+  } catch (err) {
+    logger.error({ err, noteId }, 'index-note enqueue failed (ai-agent)')
   }
-  // Without an explicit folder, pick the tenant's first vault. RLS scopes
-  // this to the requesting subscription, so there's no risk of writing
-  // into another tenant's vault.
-  const v = await client.query<{ id: string }>(
-    `SELECT id FROM vaults WHERE deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`,
-  )
-  if (v.rowCount === 0) throw Forbidden('no_vault')
-  return v.rows[0]!.id
 }
 
 async function assertFolderInVault(

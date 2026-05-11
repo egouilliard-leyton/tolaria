@@ -27,3 +27,19 @@ Conventions:
   enable RLS (see `docs/adr/0115-multi-tenant-postgres-rls.md`).
 - Migrations run as the `tolaria_migrator` role; the application connects as
   the `tolaria_app` role for which RLS is enforced.
+
+## Production role passwords
+
+The local dev stack creates both roles with the placeholder password
+`devpw` (see `scripts/dev-bootstrap.sh`). **Production deployments MUST
+create the `tolaria_app` and `tolaria_migrator` LOGIN roles with
+distinct, high-entropy passwords** and supply them to the API/worker
+via `DATABASE_URL` and `DATABASE_MIGRATOR_URL` respectively. The two
+roles MUST stay separate: `tolaria_app` connects under RLS, while
+`tolaria_migrator` is the only role permitted to run DDL. Rotate the
+passwords on the same cadence as any other production secret; pg-boss
+and the Hono pool both honour the connection string on restart, so a
+zero-downtime rotation is a connection-string change plus a rolling
+restart of the api + worker pods. The Helm chart / ops playbook is the
+right place to record the rotation cadence; this README only
+documents the contract.

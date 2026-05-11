@@ -30,6 +30,8 @@ const CSP_VALUE = [
   "script-src 'self'",
   // shadcn/ui ships inline `<style>` blocks for class-variance-authority
   // generated styles, so we allow inline styles. Inline scripts remain banned.
+  // See docs/adr/0121-csp-style-unsafe-inline.md — the nonce-based form is
+  // the v2 target.
   "style-src 'self' 'unsafe-inline'",
   "frame-ancestors 'none'",
   "base-uri 'self'",

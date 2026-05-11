@@ -7,7 +7,11 @@ to a multi-tenant web SaaS while keeping the existing desktop client working.
 
 > Companion ADRs: [0115](adr/0115-multi-tenant-postgres-rls.md),
 > [0116](adr/0116-attachments-on-cloudflare-r2.md),
-> [0117](adr/0117-authentik-oidc-sso.md).
+> [0117](adr/0117-authentik-oidc-sso.md),
+> [0118](adr/0118-personal-subscription-on-first-sso.md),
+> [0119](adr/0119-attachment-gc-schedule.md),
+> [0120](adr/0120-rls-platform-context.md),
+> [0121](adr/0121-csp-style-unsafe-inline.md).
 
 ---
 
@@ -104,7 +108,7 @@ tolaria/
 │   │   │   │   ├── attachments.ts
 │   │   │   │   ├── ai.ts           SSE proxy to LiteLLM
 │   │   │   │   └── admin/sso.ts
-│   │   │   ├── services/           authentik client, r2 client, litellm client
+│   │   │   ├── services/           authentik client (services/authentik.ts), r2 client, litellm client
 │   │   │   ├── jobs/               enqueue helpers (pg-boss producers)
 │   │   │   └── lib/                validation schemas, errors
 │   │   ├── test/

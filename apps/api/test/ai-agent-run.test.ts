@@ -228,7 +228,11 @@ describe('POST /ai/agent/run', () => {
       round += 1
       if (round === 1) {
         // First round: model asks for vault.search.
-        yield frameToolCall('tc_1', 'vault.search', '{"query":"foo"}')
+        yield frameToolCall(
+          'tc_1',
+          'vault.search',
+          '{"vault_id":"11111111-1111-1111-1111-111111111111","query":"foo"}',
+        )
         return
       }
       // Second round: with the tool result in scope, the model answers.
@@ -327,7 +331,11 @@ describe('POST /ai/agent/run', () => {
     let round = 0
     liteLlmStreamMock.mockImplementation(async function* () {
       round += 1
-      yield frameToolCall(`tc_${round}`, 'vault.list_notes', '{}')
+      yield frameToolCall(
+        `tc_${round}`,
+        'vault.list_notes',
+        '{"vault_id":"11111111-1111-1111-1111-111111111111"}',
+      )
     })
 
     const app = await buildApp()

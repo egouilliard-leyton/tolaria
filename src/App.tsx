@@ -80,6 +80,7 @@ import { ConflictResolverModal } from './components/ConflictResolverModal'
 import { ConfirmDeleteDialog } from './components/ConfirmDeleteDialog'
 import { DeleteProgressNotice } from './components/DeleteProgressNotice'
 import { UpdateBanner } from './components/UpdateBanner'
+import { CloudUnreachableBanner } from './components/CloudUnreachableBanner'
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri, mockInvoke } from './mock-tauri'
 import type { SidebarSelection, InboxPeriod, VaultEntry, ViewDefinition } from './types'
@@ -1738,6 +1739,7 @@ function App() {
 
   return (
     <div className="app-shell">
+        {import.meta.env.VITE_TARGET === 'web' && <CloudUnreachableBanner />}
         <div className="app">
           {sidebarVisible && (
             <>

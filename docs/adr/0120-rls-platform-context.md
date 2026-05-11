@@ -63,6 +63,14 @@ Specifics:
      subscription it belongs to.
    - `apps/api/src/services/sso-provider.ts` — platform-default
      provider loader and admin-CRUD pre-flight reads.
+   - `apps/worker/src/handlers/audit-log-purge.ts` — daily platform-
+     wide audit retention sweep. The handler runs a single
+     `DELETE FROM audit_log WHERE created_at < now() - $1::interval`
+     without a per-tenant scope; this is intentional because the
+     retention policy is platform-uniform (see ADR-0115 §6 and the
+     `AUDIT_LOG_RETENTION_DAYS` env). The handler must NOT be
+     extended to perform per-tenant work under the platform context —
+     anything per-tenant must reopen `withTenant`.
 3. With no session var set, the visible surface is exactly:
    - `sso_providers` rows where `subscription_id IS NULL` (policy
      `sso_providers_tenant_or_global` permits this for any session).
