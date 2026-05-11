@@ -494,7 +494,10 @@ describe('POST /auth/refresh', () => {
     const refRes = await app.fetch(
       new Request('http://localhost:8787/auth/refresh', {
         method: 'POST',
-        headers: { cookie: `tolaria_refresh=${refresh?.value}` },
+        headers: {
+          cookie: `tolaria_refresh=${refresh?.value}`,
+          origin: 'http://localhost:5173',
+        },
       }),
     )
     expect(refRes.status).toBe(200)
@@ -512,7 +515,10 @@ describe('POST /auth/refresh', () => {
   it('rejects when no refresh cookie is present', async () => {
     const app = await loadAuthApp()
     const res = await app.fetch(
-      new Request('http://localhost:8787/auth/refresh', { method: 'POST' }),
+      new Request('http://localhost:8787/auth/refresh', {
+        method: 'POST',
+        headers: { origin: 'http://localhost:5173' },
+      }),
     )
     expect(res.status).toBe(401)
   })
@@ -537,7 +543,10 @@ describe('POST /auth/logout', () => {
     const out = await app.fetch(
       new Request('http://localhost:8787/auth/logout', {
         method: 'POST',
-        headers: { cookie: `tolaria_refresh=${refresh?.value}` },
+        headers: {
+          cookie: `tolaria_refresh=${refresh?.value}`,
+          origin: 'http://localhost:5173',
+        },
       }),
     )
     expect(out.status).toBe(200)
@@ -551,7 +560,10 @@ describe('POST /auth/logout', () => {
   it('returns 200 even with no cookie (idempotent)', async () => {
     const app = await loadAuthApp()
     const out = await app.fetch(
-      new Request('http://localhost:8787/auth/logout', { method: 'POST' }),
+      new Request('http://localhost:8787/auth/logout', {
+        method: 'POST',
+        headers: { origin: 'http://localhost:5173' },
+      }),
     )
     expect(out.status).toBe(200)
   })

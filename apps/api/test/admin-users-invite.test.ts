@@ -61,6 +61,12 @@ function makeClient(): FakeClient {
       ) {
         return { rows: [], rowCount: 0 }
       }
+      // The admin mutator rate-limit middleware (Bundle H §4) UPSERTs a
+      // bucket row per request. Always reply with `allowed=true` here so
+      // the auxiliary middleware is transparent to behavior tests.
+      if (text.trim().startsWith('INSERT INTO rate_limit_buckets')) {
+        return { rows: [{ allowed: true, remaining: 999 }], rowCount: 1 }
+      }
       const next = responses.shift()
       if (!next) return { rows: [], rowCount: 0 }
       return { rows: next.rows, rowCount: next.rowCount ?? next.rows.length }

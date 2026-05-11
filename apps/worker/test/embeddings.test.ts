@@ -72,9 +72,13 @@ describe('embedText', () => {
       abortSignal = init?.signal ?? undefined
       // Resolve only when the signal aborts so we exercise the timeout path.
       return new Promise<Response>((_resolve, reject) => {
-        abortSignal?.addEventListener('abort', () =>
-          reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
-        )
+        const onAbort = () =>
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        if (abortSignal?.aborted) {
+          onAbort()
+        } else {
+          abortSignal?.addEventListener('abort', onAbort, { once: true })
+        }
       })
     }
     const promise = embedText('x', 'm', {
@@ -83,9 +87,14 @@ describe('embedText', () => {
       fetchImpl,
       timeoutMs: 50,
     })
+    // Attach a rejection handler synchronously so the unhandled-rejection
+    // warning doesn't fire when the abort timer reaches into the pending
+    // fetch promise on the next microtask.
+    const settled = promise.catch((e) => e)
     // Advance past the timeout deadline.
     await vi.advanceTimersByTimeAsync(60)
-    await expect(promise).rejects.toThrow(/aborted/)
+    const err = await settled
+    expect(String(err)).toMatch(/aborted/)
     expect(abortSignal?.aborted).toBe(true)
     vi.useRealTimers()
   })
