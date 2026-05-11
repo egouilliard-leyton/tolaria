@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "VITE_TARGET=web vite --port 5201",
     "build": "tsc -b && vite build",
+    "build:web": "VITE_TARGET=web vite build --outDir dist-web",
     "agent-docs": "node scripts/build-agent-docs.mjs",
     "bundle-mcp": "node scripts/bundle-mcp-server.mjs",
     "docs:dev": "vitepress dev site --host 127.0.0.1",
@@ -20,11 +22,14 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "scripts/test-integration.sh",
     "test:e2e": "playwright test",
     "playwright:smoke": "playwright test --config playwright.smoke.config.ts tests/smoke/autosave-low-end-typing.spec.ts tests/smoke/create-note-backing-file.spec.ts tests/smoke/delete-note-nonblocking.spec.ts tests/smoke/example.spec.ts tests/smoke/fix-ai-chat-empty-body-v3.spec.ts tests/smoke/fix-crash-create-note.spec.ts tests/smoke/fresh-start-telemetry-onboarding.spec.ts tests/smoke/frontmatter-date-picker.spec.ts tests/smoke/getting-started-template.spec.ts tests/smoke/h1-title-decoupled.spec.ts tests/smoke/note-history-edit-loop.spec.ts tests/smoke/h1-untitled-auto-rename.spec.ts tests/smoke/keyboard-command-routing.spec.ts tests/smoke/linkify-init-warnings.spec.ts tests/smoke/missing-active-vault-recovery.spec.ts tests/smoke/missing-string-metadata-open-note.spec.ts tests/smoke/multibyte-search-snippet.spec.ts tests/smoke/multi-selection-shortcuts.spec.ts tests/smoke/pull-refresh-open-note.spec.ts tests/smoke/type-derived-properties.spec.ts tests/smoke/vault-loading-skeleton.spec.ts tests/smoke/wikilink-path-fix.spec.ts",
     "playwright:regression": "playwright test tests/smoke/",
     "playwright:integration": "playwright test --config playwright.integration.config.ts",
     "test:coverage": "node scripts/run-vitest-coverage.mjs",
+    "db:migrate": "tsx db/migrate.ts",
+    "db:seed-platform": "tsx apps/api/scripts/seed-platform-provider.ts",
     "prepare": "husky"
   },
   "dependencies": {
@@ -104,6 +109,7 @@
     "gray-matter": "^4.0.3",
     "husky": "^9.1.7",
     "jsdom": "^28.0.0",
+    "tsx": "^4.19.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
     "vite": "^7.3.2",

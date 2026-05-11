@@ -1,0 +1,35 @@
+name: SaaS CI
+on:
+  pull_request:
+    paths: ['apps/api/**', 'apps/worker/**', 'db/**']
+  push:
+    branches: [main]
+    paths: ['apps/api/**', 'apps/worker/**', 'db/**']
+
+jobs:
+  api-worker:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tolaria
+          POSTGRES_PASSWORD: devpw
+          POSTGRES_DB: tolaria
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U tolaria"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: DATABASE_MIGRATOR_URL=postgres://tolaria:devpw@localhost:5432/tolaria pnpm db:migrate
+      - run: pnpm --filter @tolaria/api test
+      - run: pnpm --filter @tolaria/worker test
+      - run: pnpm --filter @tolaria/api build
+      - run: pnpm --filter @tolaria/worker build

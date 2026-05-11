@@ -1,4 +1,8 @@
 import { Component, useEffect, useCallback, useMemo, useRef, useContext, useState, type ReactNode } from 'react'
+// `@tauri-apps/api/core` resolves to the web-build stub via the Vite alias
+// (see `vite.config.ts` and `src/lib/web-build/tauri-stub.ts`). Every call
+// site below is guarded by an `isTauri()` runtime check, so the web build
+// never reaches the stub.
 import { invoke } from '@tauri-apps/api/core'
 import { trackEvent } from '../lib/telemetry'
 import {

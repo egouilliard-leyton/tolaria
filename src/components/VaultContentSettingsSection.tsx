@@ -91,13 +91,18 @@ export function VaultContentSettingsSection({
           testId="settings-initial-h1-auto-rename"
         />
 
-        <SettingsSwitchRow
-          label={t('settings.vaultContent.hideGitignored')}
-          description={t('settings.vaultContent.hideGitignoredDescription')}
-          checked={hideGitignoredFiles}
-          onChange={setHideGitignoredFiles}
-          testId="settings-hide-gitignored-files"
-        />
+        {/* Hide-gitignored is a Git-vault-only behaviour — the web build
+            has no on-disk vault and no `.gitignore`, so the toggle is
+            omitted there. */}
+        {import.meta.env.VITE_TARGET !== 'web' && (
+          <SettingsSwitchRow
+            label={t('settings.vaultContent.hideGitignored')}
+            description={t('settings.vaultContent.hideGitignoredDescription')}
+            checked={hideGitignoredFiles}
+            onChange={setHideGitignoredFiles}
+            testId="settings-hide-gitignored-files"
+          />
+        )}
 
         <SettingsSwitchRow
           label={t('settings.allNotesVisibility.pdfs')}

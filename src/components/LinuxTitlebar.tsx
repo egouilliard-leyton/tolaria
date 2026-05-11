@@ -36,6 +36,11 @@ const RESIZE_HANDLES: ReadonlyArray<{
 ]
 
 export function LinuxTitlebar() {
+  // `shouldUseLinuxWindowChrome()` returns false in the web build (it's
+  // gated by `isTauri()`), so `LinuxTitlebar` and `LinuxMenuButton`
+  // short-circuit to null before any `@tauri-apps/api/window` call fires.
+  // The `@tauri-apps/api` imports above resolve to the web-build stub via
+  // the Vite alias in vite.config.ts, so the module load is safe.
   const linuxChromeEnabled = shouldUseLinuxWindowChrome()
   const { onMouseDown } = useDragRegion()
   const maximized = useLinuxMaximizedState(linuxChromeEnabled)

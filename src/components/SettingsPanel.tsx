@@ -86,6 +86,12 @@ interface SettingsPanelProps {
   explicitOrganizationEnabled?: boolean
   onSaveExplicitOrganization?: (enabled: boolean) => void
   onClose: () => void
+  /**
+   * Optional render slot appended after the standard sections. The desktop
+   * shell uses this to inject a "Cloud" section with the migration dialog;
+   * the slot is left out of the web build via the usual VITE_TARGET gate.
+   */
+  extraSection?: ReactNode
 }
 
 interface SettingsDraft {
@@ -369,6 +375,7 @@ export function SettingsPanel({
   explicitOrganizationEnabled = true,
   onSaveExplicitOrganization,
   onClose,
+  extraSection,
 }: SettingsPanelProps) {
   if (!open) return null
 
@@ -384,6 +391,7 @@ export function SettingsPanel({
       explicitOrganizationEnabled={explicitOrganizationEnabled}
       onSaveExplicitOrganization={onSaveExplicitOrganization}
       onClose={onClose}
+      extraSection={extraSection}
     />
   )
 }
@@ -394,6 +402,7 @@ type SettingsPanelInnerProps = Omit<SettingsPanelProps, 'open' | 'explicitOrgani
   systemLocale: AppLocale
   isGitVault: boolean
   explicitOrganizationEnabled: boolean
+  extraSection?: ReactNode
 }
 
 function SettingsPanelInner({
@@ -406,6 +415,7 @@ function SettingsPanelInner({
   explicitOrganizationEnabled,
   onSaveExplicitOrganization,
   onClose,
+  extraSection,
 }: SettingsPanelInnerProps) {
   const [draft, setDraft] = useState(() => createSettingsDraft(settings, explicitOrganizationEnabled))
   const panelRef = useRef<HTMLDivElement>(null)
@@ -497,6 +507,7 @@ function SettingsPanelInner({
           setThemeMode={handleThemeModeChange}
           setHideGitignoredFiles={handleGitignoredVisibilityChange}
           setAllNotesFileVisibility={handleAllNotesFileVisibilityChange}
+          extraSection={extraSection}
         />
         <SettingsFooter onClose={onClose} onSave={handleSave} t={t} />
       </div>
@@ -536,6 +547,7 @@ interface SettingsBodyFromDraftProps {
   setThemeMode: (value: ThemeMode) => void
   setHideGitignoredFiles: (value: boolean) => void
   setAllNotesFileVisibility: (value: AllNotesFileVisibility) => void
+  extraSection?: ReactNode
 }
 
 function SettingsBodyFromDraft({
@@ -550,9 +562,11 @@ function SettingsBodyFromDraft({
   setThemeMode,
   setHideGitignoredFiles,
   setAllNotesFileVisibility,
+  extraSection,
 }: SettingsBodyFromDraftProps) {
   return (
     <SettingsBody
+      extraSection={extraSection}
       t={t}
       locale={locale}
       systemLocale={systemLocale}
@@ -601,7 +615,7 @@ function SettingsBodyFromDraft({
   )
 }
 
-function SettingsBody(props: SettingsBodyProps) {
+function SettingsBody(props: SettingsBodyProps & { extraSection?: ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <SettingsBodyNav t={props.t} />
@@ -609,21 +623,40 @@ function SettingsBody(props: SettingsBodyProps) {
         <SettingsSyncAndAppearanceSections {...props} />
         <SettingsContentSections {...props} />
         <SettingsAgentWorkflowSections {...props} />
+        {props.extraSection}
       </div>
     </div>
   )
 }
 
+type SettingsNavItem = {
+  id: (typeof SETTINGS_SECTION_IDS)[keyof typeof SETTINGS_SECTION_IDS]
+  label: string
+  Icon: typeof RefreshCw
+}
+
+function buildSettingsNavItems(t: Translate): SettingsNavItem[] {
+  // Sync (pull interval + release channel), AutoGit, and AI agents (CLI
+  // selector) are desktop-only — drop their nav entries in the web build so
+  // users don't scroll to an empty section.
+  const isWebBuild = import.meta.env.VITE_TARGET === 'web'
+  const items: SettingsNavItem[] = []
+  if (!isWebBuild) {
+    items.push({ id: SETTINGS_SECTION_IDS.sync, label: t('settings.sync.title'), Icon: RefreshCw })
+    items.push({ id: SETTINGS_SECTION_IDS.autogit, label: t('settings.autogit.title'), Icon: GitBranch })
+  }
+  items.push({ id: SETTINGS_SECTION_IDS.appearance, label: t('settings.appearance.title'), Icon: Palette })
+  items.push({ id: SETTINGS_SECTION_IDS.content, label: t('settings.vaultContent.title'), Icon: Folder })
+  if (!isWebBuild) {
+    items.push({ id: SETTINGS_SECTION_IDS.ai, label: t('settings.aiAgents.title'), Icon: Bot })
+  }
+  items.push({ id: SETTINGS_SECTION_IDS.workflow, label: t('settings.workflow.title'), Icon: ListChecks })
+  items.push({ id: SETTINGS_SECTION_IDS.privacy, label: t('settings.privacy.title'), Icon: ShieldCheck })
+  return items
+}
+
 function SettingsBodyNav({ t }: { t: Translate }) {
-  const items = [
-    { id: SETTINGS_SECTION_IDS.sync, label: t('settings.sync.title'), Icon: RefreshCw },
-    { id: SETTINGS_SECTION_IDS.autogit, label: t('settings.autogit.title'), Icon: GitBranch },
-    { id: SETTINGS_SECTION_IDS.appearance, label: t('settings.appearance.title'), Icon: Palette },
-    { id: SETTINGS_SECTION_IDS.content, label: t('settings.vaultContent.title'), Icon: Folder },
-    { id: SETTINGS_SECTION_IDS.ai, label: t('settings.aiAgents.title'), Icon: Bot },
-    { id: SETTINGS_SECTION_IDS.workflow, label: t('settings.workflow.title'), Icon: ListChecks },
-    { id: SETTINGS_SECTION_IDS.privacy, label: t('settings.privacy.title'), Icon: ShieldCheck },
-  ]
+  const items = buildSettingsNavItems(t)
 
   return (
     <div className="hidden w-48 shrink-0 border-r border-border px-3 py-4 md:block">
@@ -666,29 +699,36 @@ function SettingsSyncAndAppearanceSections({
   uiLanguage,
   setUiLanguage,
 }: SettingsBodyProps) {
+  // Sync (pull-interval + release-channel) and AutoGit are desktop-only:
+  // the web build has no Git backend and no Tauri auto-updater, so both
+  // sections are omitted entirely. The desktop build is unaffected.
   return (
     <>
-      <SettingsSection id={SETTINGS_SECTION_IDS.sync} showDivider={false}>
-        <SyncAndUpdatesSection
-          t={t}
-          pullInterval={pullInterval}
-          setPullInterval={setPullInterval}
-          releaseChannel={releaseChannel}
-          setReleaseChannel={setReleaseChannel}
-        />
-      </SettingsSection>
-      <SettingsSection id={SETTINGS_SECTION_IDS.autogit}>
-        <AutoGitSettingsSection
-          t={t}
-          isGitVault={isGitVault}
-          autoGitEnabled={autoGitEnabled}
-          setAutoGitEnabled={setAutoGitEnabled}
-          autoGitIdleThresholdSeconds={autoGitIdleThresholdSeconds}
-          setAutoGitIdleThresholdSeconds={setAutoGitIdleThresholdSeconds}
-          autoGitInactiveThresholdSeconds={autoGitInactiveThresholdSeconds}
-          setAutoGitInactiveThresholdSeconds={setAutoGitInactiveThresholdSeconds}
-        />
-      </SettingsSection>
+      {import.meta.env.VITE_TARGET !== 'web' && (
+        <SettingsSection id={SETTINGS_SECTION_IDS.sync} showDivider={false}>
+          <SyncAndUpdatesSection
+            t={t}
+            pullInterval={pullInterval}
+            setPullInterval={setPullInterval}
+            releaseChannel={releaseChannel}
+            setReleaseChannel={setReleaseChannel}
+          />
+        </SettingsSection>
+      )}
+      {import.meta.env.VITE_TARGET !== 'web' && (
+        <SettingsSection id={SETTINGS_SECTION_IDS.autogit}>
+          <AutoGitSettingsSection
+            t={t}
+            isGitVault={isGitVault}
+            autoGitEnabled={autoGitEnabled}
+            setAutoGitEnabled={setAutoGitEnabled}
+            autoGitIdleThresholdSeconds={autoGitIdleThresholdSeconds}
+            setAutoGitIdleThresholdSeconds={setAutoGitIdleThresholdSeconds}
+            autoGitInactiveThresholdSeconds={autoGitInactiveThresholdSeconds}
+            setAutoGitInactiveThresholdSeconds={setAutoGitInactiveThresholdSeconds}
+          />
+        </SettingsSection>
+      )}
 
       <SettingsSection id={SETTINGS_SECTION_IDS.appearance}>
         <SectionHeading title={t('settings.appearance.title')} />
@@ -762,21 +802,27 @@ function SettingsAgentWorkflowSections({
   analytics,
   setAnalytics,
 }: SettingsBodyProps) {
+  // AI agents (Claude / Codex / Gemini / OpenCode / PI selector) plus the
+  // local/api model provider tabs target the desktop CLI integration. In
+  // the web build the server-side AI proxy handles model selection, so the
+  // whole section is dropped.
   return (
     <>
-      <SettingsSection id={SETTINGS_SECTION_IDS.ai}>
-        <AiAgentSettingsSection
-          t={t}
-          aiAgentsStatus={aiAgentsStatus}
-          defaultAiAgent={defaultAiAgent}
-          setDefaultAiAgent={setDefaultAiAgent}
-          defaultAiTarget={defaultAiTarget}
-          setDefaultAiTarget={setDefaultAiTarget}
-          aiModelProviders={aiModelProviders}
-          setAiModelProviders={setAiModelProviders}
-          onCopyMcpConfig={onCopyMcpConfig}
-        />
-      </SettingsSection>
+      {import.meta.env.VITE_TARGET !== 'web' && (
+        <SettingsSection id={SETTINGS_SECTION_IDS.ai}>
+          <AiAgentSettingsSection
+            t={t}
+            aiAgentsStatus={aiAgentsStatus}
+            defaultAiAgent={defaultAiAgent}
+            setDefaultAiAgent={setDefaultAiAgent}
+            defaultAiTarget={defaultAiTarget}
+            setDefaultAiTarget={setDefaultAiTarget}
+            aiModelProviders={aiModelProviders}
+            setAiModelProviders={setAiModelProviders}
+            onCopyMcpConfig={onCopyMcpConfig}
+          />
+        </SettingsSection>
+      )}
 
       <SettingsSection id={SETTINGS_SECTION_IDS.workflow}>
         <OrganizationWorkflowSection
