@@ -36,6 +36,8 @@ interface RefreshRow {
   hashed_token: string
   expires_at: Date
   revoked_at: Date | null
+  user_agent?: string | null
+  ip?: string | null
 }
 
 interface RefreshRowWithRole extends RefreshRow {
@@ -158,7 +160,9 @@ export async function rotateRefreshToken(
   const expiresAt = new Date(Date.now() + env.AUTH_JWT_REFRESH_TTL_SECONDS * 1000)
 
   const result = await withPlatformContext(async (client) => {
-    // Mark the old row revoked; only succeed if it was still live.
+    // Mark the old row revoked; only succeed if it was still live. Returning
+    // the prior `user_agent` / `ip` so the caller can detect mismatches and
+    // record a suspicious-refresh audit entry. See Bundle H §2.
     const revoked = await client.query<RefreshRowWithRole>(
       `UPDATE refresh_tokens
           SET revoked_at = now()
@@ -167,7 +171,7 @@ export async function rotateRefreshToken(
           AND revoked_at IS NULL
           AND expires_at > now()
         RETURNING id, user_id, subscription_id, hashed_token, expires_at,
-                  revoked_at,
+                  revoked_at, user_agent, ip,
                   (SELECT role::text FROM users WHERE users.id = refresh_tokens.user_id) AS role`,
       [parts.rowId, hashed],
     )
@@ -189,6 +193,36 @@ export async function rotateRefreshToken(
     )
     const row = inserted.rows[0]
     if (!row) throw new Error('Failed to insert rotated refresh token')
+    // If the prior row's UA or IP differs from the request that's rotating it,
+    // log an `auth.refresh.suspicious` audit row so ops can spot a stolen
+    // cookie pattern. We do NOT reject the rotation — a benign UA/IP change
+    // (new browser version, new mobile network) must not lock real users out.
+    const oldUa = old.user_agent ?? null
+    const oldIp = old.ip ?? null
+    const newUa = userAgent ?? null
+    const newIp = ip ?? null
+    if (oldUa !== newUa || oldIp !== newIp) {
+      try {
+        await client.query(
+          `INSERT INTO audit_log (subscription_id, actor_user_id, action, target, meta)
+             VALUES ($1, $2, $3, $4, $5::jsonb)`,
+          [
+            old.subscription_id,
+            old.user_id,
+            'auth.refresh.suspicious',
+            `refresh:${old.id}`,
+            JSON.stringify({
+              old_ua: oldUa,
+              new_ua: newUa,
+              old_ip: oldIp,
+              new_ip: newIp,
+            }),
+          ],
+        )
+      } catch {
+        // Audit insert failure is non-fatal — rotation has already succeeded.
+      }
+    }
     return {
       newRowId: row.id,
       userId: old.user_id,

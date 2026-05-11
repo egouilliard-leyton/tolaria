@@ -13,6 +13,7 @@ import type {
   AiStreamEvent,
   AiStreamRequest,
   CreateNoteRequest,
+  CreateVaultRequest,
   Folder,
   Note,
   NoteSummary,
@@ -125,6 +126,17 @@ export class HttpVaultAdapter implements VaultAdapter {
 
   async getVault(id: string): Promise<Vault> {
     const dto = await this.client.getJson<VaultDto>(`/vaults/${encodeURIComponent(id)}`)
+    return toVault(dto)
+  }
+
+  async createVault(input: CreateVaultRequest): Promise<Vault> {
+    const body: Record<string, unknown> = { name: input.name }
+    if (input.slug !== undefined) body.slug = input.slug
+    if (input.settings !== undefined) body.settings = input.settings
+    const dto = await this.client.requestJson<VaultDto>('/vaults', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
     return toVault(dto)
   }
 

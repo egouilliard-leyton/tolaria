@@ -14,8 +14,25 @@ const Schema = z.object({
   // LiteLLM — required for the `ai-tool-run` handler.
   LITELLM_BASE_URL: z.string().url().default('http://litellm.invalid'),
   LITELLM_TOKEN: z.string().min(1).default(''),
+  // Optional embedding model name routed through LiteLLM. When empty the
+  // worker's embedding pipeline in `handleIndexNote` is disabled silently
+  // and only the `to_tsvector` upsert runs (Bundle F).
+  LITELLM_EMBEDDING_MODEL: z.string().default(''),
+  // Output dimensionality of the embedding model. Must match the pgvector
+  // column width on `note_search.embedding` (1536 per 0001_init.sql).
+  EMBEDDING_DIMS: z.coerce.number().int().positive().default(1536),
+  // Per-tenant daily budget cap for embedding spend, in cents. Enforced
+  // via the `embedding_budgets` table in 0005_embedding_budgets.sql.
+  EMBEDDING_BUDGET_CENTS_PER_TENANT_PER_DAY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100),
   // Grace window for the unverified-attachment sweep.
   R2_UNVERIFIED_GRACE_INTERVAL: z.string().default('1 hour'),
+  // Audit log retention. The daily `audit-log-purge` job DELETEs rows older
+  // than this many days. Default 365; lower in dev, raise for compliance.
+  AUDIT_LOG_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
 })
 
 export type WorkerEnv = z.infer<typeof Schema>

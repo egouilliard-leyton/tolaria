@@ -6,6 +6,7 @@ import { handleIndexNote, IndexNotePayload } from './handlers/index-note.js'
 import { handlePropagateRename } from './handlers/propagate-rename.js'
 import { handleR2Gc } from './handlers/r2-gc.js'
 import { handleAiToolRun } from './handlers/ai-tool-run.js'
+import { handleAuditLogPurge } from './handlers/audit-log-purge.js'
 import { handleRebuildVaultIndex } from './handlers/rebuild-vault-index.js'
 
 const env = loadEnv()
@@ -62,6 +63,11 @@ async function main(): Promise<void> {
     await handleRebuildVaultIndex(job)
   })
 
+  await boss.work<unknown>('audit-log-purge', workOptions, async ([job]) => {
+    if (!job) return
+    await handleAuditLogPurge(job)
+  })
+
   // Periodic sweep for abandoned uploads (ADR-0116 §4). The handler is
   // idempotent and reads the grace interval from
   // `R2_UNVERIFIED_GRACE_INTERVAL` (default '1 hour'). When invoked with
@@ -76,6 +82,17 @@ async function main(): Promise<void> {
     { singletonKey: 'unverified-sweep' },
   )
 
+  // Daily audit-log retention sweep (Bundle H §6). Runs at 03:00 UTC under a
+  // singleton key so a slow purge never gets dispatched concurrently. The
+  // handler reads AUDIT_LOG_RETENTION_DAYS at execution time so tuning the
+  // env var is a redeploy-free knob.
+  await boss.schedule(
+    'audit-log-purge',
+    '0 3 * * *',
+    {},
+    { singletonKey: 'audit-log-purge' },
+  )
+
   logger.info(
     {
       queues: [
@@ -84,6 +101,7 @@ async function main(): Promise<void> {
         'r2-gc',
         'ai-tool-run',
         'rebuild-vault-index',
+        'audit-log-purge',
       ],
     },
     'worker handlers registered',

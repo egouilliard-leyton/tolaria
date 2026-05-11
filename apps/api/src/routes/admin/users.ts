@@ -13,7 +13,18 @@ import { z } from 'zod'
 import { withTenant } from '../../db.js'
 import { loadEnv } from '../../env.js'
 import { Conflict, InvalidInput, NotFound } from '../../lib/errors.js'
+import { rateLimit } from '../../middleware/rate-limit.js'
 import { requireRole } from '../../middleware/require-role.js'
+
+// Per-user rate limit on mutating admin endpoints. List/GET endpoints stay
+// unbounded; the cap targets invite/role-change/revoke abuse. See Bundle H
+// §4 of docs/web-saas/audit-2026-05-10.md.
+const adminMutatorRateLimit = rateLimit({
+  bucket: 'admin',
+  scope: 'user',
+  burst: 30,
+  refillRate: 0.5,
+})
 
 const env = loadEnv()
 const JWT_SECRET = new TextEncoder().encode(env.AUTH_JWT_SECRET)
@@ -99,7 +110,7 @@ usersAdmin.get('/', async (c) => {
   return c.json(rows.map(rowToResponse))
 })
 
-usersAdmin.post('/invite', async (c) => {
+usersAdmin.post('/invite', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const parsed = InviteSchema.safeParse(await safeJson(c))
   if (!parsed.success) throw InvalidInput('Invalid invite payload', parsed.error.flatten())
@@ -154,7 +165,7 @@ usersAdmin.post('/invite', async (c) => {
   )
 })
 
-usersAdmin.patch('/:id', async (c) => {
+usersAdmin.patch('/:id', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const idParse = UuidSchema.safeParse(c.req.param('id'))
   if (!idParse.success) throw InvalidInput('Invalid user id')
@@ -218,7 +229,7 @@ usersAdmin.patch('/:id', async (c) => {
   return c.json(rowToResponse(updated))
 })
 
-usersAdmin.delete('/:id', async (c) => {
+usersAdmin.delete('/:id', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const idParse = UuidSchema.safeParse(c.req.param('id'))
   if (!idParse.success) throw InvalidInput('Invalid user id')

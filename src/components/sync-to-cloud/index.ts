@@ -13,6 +13,8 @@ export {
 export {
   useSyncToCloud,
   readPersistedCloudSync,
+  readPersistedCheckpoint,
+  type Checkpoint,
   type SyncableNote,
   type SyncableAttachment,
   type SyncStep,

@@ -9,8 +9,20 @@ import { z } from 'zod'
 import { withTenant } from '../../db.js'
 import { Conflict, InvalidInput, NotFound } from '../../lib/errors.js'
 import { fetchDiscoveryDocument } from '../../lib/discovery-fetcher.js'
+import { rateLimit } from '../../middleware/rate-limit.js'
 import { requireRole } from '../../middleware/require-role.js'
 import { encryptToStorage } from '../../services/secret-encryption.js'
+
+// Per-user rate limit on mutating admin endpoints. GETs (list providers) are
+// unbounded for now since they are read-only; the burst cap protects against
+// abusive automation that tries to churn the provider catalogue. See Bundle H
+// §4 of docs/web-saas/audit-2026-05-10.md.
+const adminMutatorRateLimit = rateLimit({
+  bucket: 'admin',
+  scope: 'user',
+  burst: 30,
+  refillRate: 0.5,
+})
 
 // ── Schemas ─────────────────────────────────────────────────────────────────
 
@@ -108,7 +120,7 @@ ssoAdmin.get('/providers', async (c) => {
   return c.json(rows.map(rowToResponse))
 })
 
-ssoAdmin.post('/providers', async (c) => {
+ssoAdmin.post('/providers', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const parsed = CreateProviderSchema.safeParse(await safeJson(c))
   if (!parsed.success) throw InvalidInput('Invalid provider payload', parsed.error.flatten())
@@ -154,7 +166,7 @@ ssoAdmin.post('/providers', async (c) => {
   return c.json(rowToResponse(created), 201)
 })
 
-ssoAdmin.patch('/providers/:id', async (c) => {
+ssoAdmin.patch('/providers/:id', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const idParse = UuidSchema.safeParse(c.req.param('id'))
   if (!idParse.success) throw InvalidInput('Invalid provider id')
@@ -234,7 +246,7 @@ ssoAdmin.patch('/providers/:id', async (c) => {
   return c.json(rowToResponse(updated))
 })
 
-ssoAdmin.delete('/providers/:id', async (c) => {
+ssoAdmin.delete('/providers/:id', adminMutatorRateLimit, async (c) => {
   const tenant = c.get('tenant')
   const idParse = UuidSchema.safeParse(c.req.param('id'))
   if (!idParse.success) throw InvalidInput('Invalid provider id')

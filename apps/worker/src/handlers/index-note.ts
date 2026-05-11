@@ -1,6 +1,21 @@
+import pino from 'pino'
 import { z } from 'zod'
+import { loadEnv } from '../env.js'
 import { withTenant } from '../lib/db.js'
 import { slugify } from '../lib/slug.js'
+import {
+  checkAndIncrementBudget,
+  embedText,
+  estimateCents,
+} from '../services/embeddings.js'
+
+const logger = pino({ level: loadEnv().LOG_LEVEL, base: { app: 'tolaria-worker', mod: 'index-note' } })
+
+// Cap the embedding input length so we don't blow past the model's
+// context window (and over-bill ourselves) on huge notes. 8k characters
+// is roughly 2k tokens — comfortably inside every common embedding
+// model's input limit.
+const EMBED_INPUT_MAX_CHARS = 8000
 
 // Job payload — every job carries the tenant id so the handler can wrap its
 // DB work in withTenant() and stay inside RLS. See ADR-0115.
@@ -49,9 +64,6 @@ export async function handleIndexNote(payload: IndexNotePayload): Promise<void> 
 
     // 1. Upsert the search row. We compute the tsvector inside Postgres so
     // the configuration ('simple') matches whatever the query side uses.
-    // TODO(embedding): compute and persist the pgvector embedding here once
-    // the embedding model + budgeting story is finalised. Leaving NULL for
-    // now keeps full-text search working without blocking on the AI side.
     const docText = `${note.title} ${note.body_md ?? ''}`
     await client.query(
       `INSERT INTO note_search (note_id, vault_id, ts_doc)
@@ -61,6 +73,53 @@ export async function handleIndexNote(payload: IndexNotePayload): Promise<void> 
              vault_id = EXCLUDED.vault_id`,
       [note.id, note.vault_id, docText],
     )
+
+    // 1b. Optional embedding write. Only runs when an embedding model is
+    // configured AND the tenant has daily budget left. Any failure here
+    // (timeout, upstream 5xx, budget exhausted) is swallowed — the
+    // full-text path above is the source of truth for search and the
+    // embedding column is additive. See Bundle F.
+    const env = loadEnv()
+    if (env.LITELLM_EMBEDDING_MODEL) {
+      try {
+        const embedInput =
+          `${note.title}\n\n${note.body_md ?? ''}`.slice(0, EMBED_INPUT_MAX_CHARS)
+        const cents = estimateCents(embedInput)
+        const withinBudget = await checkAndIncrementBudget(
+          client,
+          payload.subscriptionId,
+          cents,
+        )
+        if (!withinBudget) {
+          logger.info(
+            { subscriptionId: payload.subscriptionId, noteId: note.id, cents },
+            'embedding skipped: daily budget exhausted',
+          )
+        } else {
+          const embedding = await embedText(embedInput, env.LITELLM_EMBEDDING_MODEL)
+          if (embedding.length !== env.EMBEDDING_DIMS) {
+            logger.warn(
+              {
+                noteId: note.id,
+                expected: env.EMBEDDING_DIMS,
+                received: embedding.length,
+              },
+              'embedding length mismatch; skipping write',
+            )
+          } else {
+            await client.query(
+              `UPDATE note_search SET embedding = $1::vector WHERE note_id = $2`,
+              [`[${embedding.join(',')}]`, note.id],
+            )
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          { err, noteId: note.id },
+          'embedding write failed; full-text path is unaffected',
+        )
+      }
+    }
 
     // 2. Rebuild the link graph for this note. Wipe-then-insert keeps the
     // logic simple; we don't need to compute a diff because the row count

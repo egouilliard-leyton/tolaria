@@ -110,9 +110,22 @@ export type AiStreamEvent =
   | { type: 'done' }
   | { type: 'error'; message: string }
 
+export interface CreateVaultRequest {
+  name: string
+  slug?: string
+  settings?: Record<string, unknown>
+}
+
 export interface VaultAdapter {
   listVaults(): Promise<Vault[]>
   getVault(id: string): Promise<Vault>
+  /**
+   * Create a new vault. Used by the desktop->cloud migration tool
+   * (`useSyncToCloud`) to provision a destination vault before uploading
+   * notes. The HTTP adapter round-trips to `POST /vaults`; the Tauri
+   * adapter creates a vault list entry and a folder on disk.
+   */
+  createVault(input: CreateVaultRequest): Promise<Vault>
 
   listFolders(vaultId: string): Promise<Folder[]>
   listNotes(

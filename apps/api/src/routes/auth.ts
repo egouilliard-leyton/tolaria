@@ -58,6 +58,48 @@ auth.use(
   rateLimit({ bucket: 'auth', scope: 'ip', ...AUTH_RATE_LIMIT }),
 )
 
+// Defense-in-depth Origin / Sec-Fetch-Site check on the cookie-bearing
+// endpoints (refresh + logout). The refresh cookie is httpOnly + SameSite=Lax,
+// but a cross-origin attempt to abuse a captured cookie should still be
+// blocked at the API boundary. Pre-flight CORS won't catch every shape of
+// abuse (e.g. simple GET-style XHRs in legacy browsers), so we require either:
+//   - `Origin` matches `env.WEB_PUBLIC_URL` (case-insensitive scheme+host), OR
+//   - `Sec-Fetch-Site: same-origin` or `same-site` is present.
+// Both signals are unforgeable by attacker-controlled JS in modern browsers.
+// See audit 2026-05-10 Bundle H §1.
+function sameOriginAsWebPublicUrl(origin: string | undefined | null): boolean {
+  if (!origin) return false
+  let originUrl: URL
+  let allowedUrl: URL
+  try {
+    originUrl = new URL(origin)
+    allowedUrl = new URL(env.WEB_PUBLIC_URL)
+  } catch {
+    return false
+  }
+  return (
+    originUrl.protocol.toLowerCase() === allowedUrl.protocol.toLowerCase() &&
+    originUrl.host.toLowerCase() === allowedUrl.host.toLowerCase()
+  )
+}
+
+function assertSameOriginOrSecFetchSite(c: import('hono').Context): void {
+  const origin = c.req.header('origin')
+  if (sameOriginAsWebPublicUrl(origin)) return
+  const secFetchSite = c.req.header('sec-fetch-site')?.toLowerCase()
+  if (secFetchSite === 'same-origin' || secFetchSite === 'same-site') return
+  throw Forbidden('cross_origin_refresh_denied')
+}
+
+auth.use('/auth/refresh', async (c, next) => {
+  assertSameOriginOrSecFetchSite(c)
+  await next()
+})
+auth.use('/auth/logout', async (c, next) => {
+  assertSameOriginOrSecFetchSite(c)
+  await next()
+})
+
 const PKCE_COOKIE = 'tolaria_pkce'
 const PKCE_TTL_SECONDS = 10 * 60
 const REFRESH_COOKIE_PATH = '/auth'

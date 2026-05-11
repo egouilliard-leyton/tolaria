@@ -76,6 +76,16 @@ export interface JobPayloads {
     subscriptionId: string
     vaultId: string
   }
+  // Embedding backfill — the same fan-out shape as `rebuild-vault-index`
+  // but specifically intended to be triggered by an admin after the
+  // embedding pipeline has been enabled or the model has changed. The
+  // worker reads notes in batches of 50 and enqueues `index-note` for
+  // each. The embedding write inside `handleIndexNote` is gated by the
+  // per-tenant daily budget so a giant vault cannot run the bill up.
+  'backfill-embeddings': {
+    subscriptionId: string
+    vaultId: string
+  }
 }
 
 export type JobName = keyof JobPayloads

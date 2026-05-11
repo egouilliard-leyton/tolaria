@@ -354,6 +354,65 @@ describe('HttpVaultAdapter', () => {
     })
   })
 
+  describe('createVault', () => {
+    it('round-trips POST /vaults and maps the response DTO', async () => {
+      handlers.push({
+        match: (url, init) => url === `${API_BASE}/vaults` && init.method === 'POST',
+        handler: (call) => {
+          // Server contract: snake_case body, returns the freshly-minted vault.
+          const body = JSON.parse((call.init.body as string) ?? '{}')
+          expect(body).toEqual({
+            name: 'Work',
+            slug: 'work',
+            settings: { theme: 'dark' },
+          })
+          return jsonResponse(201, {
+            id: 'v-new',
+            slug: 'work',
+            name: 'Work',
+            created_at: '2026-05-11T00:00:00Z',
+            settings: { theme: 'dark' },
+          })
+        },
+      })
+
+      const adapter = new HttpVaultAdapter({ baseUrl: API_BASE, fetchImpl: mockFetch() })
+      const vault = await adapter.createVault({
+        name: 'Work',
+        slug: 'work',
+        settings: { theme: 'dark' },
+      })
+
+      expect(vault).toEqual({
+        id: 'v-new',
+        slug: 'work',
+        name: 'Work',
+        createdAt: '2026-05-11T00:00:00Z',
+        settings: { theme: 'dark' },
+      })
+    })
+
+    it('omits slug and settings when the caller does not provide them', async () => {
+      handlers.push({
+        match: (url, init) => url === `${API_BASE}/vaults` && init.method === 'POST',
+        handler: (call) => {
+          const body = JSON.parse((call.init.body as string) ?? '{}')
+          expect(body).toEqual({ name: 'Solo' })
+          return jsonResponse(201, {
+            id: 'v-solo',
+            slug: 'solo',
+            name: 'Solo',
+            created_at: '2026-05-11T00:00:00Z',
+          })
+        },
+      })
+      const adapter = new HttpVaultAdapter({ baseUrl: API_BASE, fetchImpl: mockFetch() })
+      const vault = await adapter.createVault({ name: 'Solo' })
+      expect(vault.id).toBe('v-solo')
+      expect(vault.settings).toEqual({})
+    })
+  })
+
   describe('search', () => {
     it('forwards mode and returns camelCase results', async () => {
       handlers.push({

@@ -168,8 +168,25 @@ async function bootstrap(): Promise<void> {
     const { AuthProvider } = await import('./lib/auth/AuthProvider')
     withAuthProvider = (node) => <AuthProvider apiBaseUrl={apiBaseUrl}>{node}</AuthProvider>
   } else {
-    const { TauriVaultAdapter } = await import('./lib/vault-adapter/tauri-adapter')
-    setActiveVaultAdapter(new TauriVaultAdapter())
+    // Desktop boot. If the active vault has been flipped to "synced" mode
+    // (via Settings → Cloud), use the HTTP adapter and the AuthProvider so
+    // reads/writes flow through the SaaS API instead of the local Rust
+    // filesystem commands. Fall back to TauriVaultAdapter on any error or
+    // when cloudSync is disabled.
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/'
+    const activeVaultPath = await readActiveVaultPath()
+    const cloudSync = activeVaultPath ? readPersistedCloudSync(activeVaultPath) : null
+    const useHttp = cloudSync?.enabled === true
+
+    if (useHttp) {
+      const { HttpVaultAdapter } = await import('./lib/vault-adapter/http-adapter')
+      setActiveVaultAdapter(new HttpVaultAdapter({ baseUrl: apiBaseUrl }))
+      const { AuthProvider } = await import('./lib/auth/AuthProvider')
+      withAuthProvider = (node) => <AuthProvider apiBaseUrl={apiBaseUrl}>{node}</AuthProvider>
+    } else {
+      const { TauriVaultAdapter } = await import('./lib/vault-adapter/tauri-adapter')
+      setActiveVaultAdapter(new TauriVaultAdapter())
+    }
   }
 
   createRoot(document.getElementById('root')!, {
@@ -185,6 +202,47 @@ async function bootstrap(): Promise<void> {
       </TooltipProvider>
     </StrictMode>,
   )
+}
+
+// Read the active vault path from the desktop's vault list. We tolerate
+// failures (the Tauri command may not be available in the test
+// environment) by returning null, in which case the boot falls through to
+// the Tauri adapter. The returned path is the key under which the
+// Sync-to-Cloud dialog persisted the `cloudSync` config in localStorage
+// (see `src/components/sync-to-cloud/useSyncToCloud.ts:342-357`).
+async function readActiveVaultPath(): Promise<string | null> {
+  try {
+    const mod = (await import('@tauri-apps/api/core')) as {
+      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>
+    }
+    interface VaultListDto {
+      vaults?: Array<{ path: string }>
+      active_vault?: string | null
+    }
+    const list = await mod.invoke<VaultListDto>('load_vault_list', {})
+    if (list.active_vault) return list.active_vault
+    return list.vaults?.[0]?.path ?? null
+  } catch {
+    return null
+  }
+}
+
+interface PersistedCloudSync {
+  enabled: boolean
+  vaultId?: string
+  subscriptionId?: string
+  lastSyncedAt?: number
+}
+
+function readPersistedCloudSync(vaultPath: string): PersistedCloudSync | null {
+  if (typeof localStorage === 'undefined') return null
+  const raw = localStorage.getItem(`tolaria.cloudSync.${vaultPath}`)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as PersistedCloudSync
+  } catch {
+    return null
+  }
 }
 
 // Minimal pre-React splash for the "WEB_SAAS_ENABLED is false" case so a

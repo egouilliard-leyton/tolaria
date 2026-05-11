@@ -44,6 +44,22 @@ const Schema = z.object({
 
   LITELLM_BASE_URL: z.string().url(),
   LITELLM_TOKEN: z.string().min(1),
+  // Optional embedding model name routed through LiteLLM. When empty (the
+  // default) the embedding pipeline is disabled silently and the full-text
+  // search path continues to work. See Bundle F notes in
+  // docs/web-saas/audit-2026-05-10.md.
+  LITELLM_EMBEDDING_MODEL: z.string().default(''),
+  // Output dimensionality of the embedding model. Must match the pgvector
+  // column width on `note_search.embedding` (1536 per 0001_init.sql).
+  EMBEDDING_DIMS: z.coerce.number().int().positive().default(1536),
+  // Per-tenant daily budget cap for embedding spend, in cents. The worker
+  // tracks daily spend in `embedding_budgets` and skips embedding writes
+  // once the cap is reached so a noisy tenant cannot run the bill up.
+  EMBEDDING_BUDGET_CENTS_PER_TENANT_PER_DAY: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100),
 
   // When `1`, the rate-limit middleware honors the leftmost entry of
   // `X-Forwarded-For` as the client IP. When `0` (the default), it uses the
@@ -52,6 +68,21 @@ const Schema = z.object({
   // behind a trusted reverse proxy (e.g. an ingress that terminates TLS and
   // sets the header itself). See docs/ARCHITECTURE-WEB-SAAS.md §9.
   TRUST_PROXY: z.coerce.boolean().default(false),
+
+  // Token-bucket sizing for the three rate-limit buckets. Defaults preserve
+  // the historical hardcoded values from middleware/rate-limit.ts. Tune via
+  // env so ops can react to abuse without a code release. See Bundle H §3.
+  AUTH_RATE_LIMIT_BURST: z.coerce.number().int().positive().default(10),
+  AUTH_RATE_LIMIT_REFILL: z.coerce.number().positive().default(0.5),
+  AI_RATE_LIMIT_BURST: z.coerce.number().int().positive().default(20),
+  AI_RATE_LIMIT_REFILL: z.coerce.number().positive().default(0.05),
+  SEARCH_RATE_LIMIT_BURST: z.coerce.number().int().positive().default(60),
+  SEARCH_RATE_LIMIT_REFILL: z.coerce.number().positive().default(1),
+
+  // Audit log retention window (days). The worker's daily `audit-log-purge`
+  // job DELETEs rows older than this. Default of 365 keeps a year of forensic
+  // history; lower in dev, raise for compliance regimes that require longer.
+  AUDIT_LOG_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
 })
 
 export type Env = z.infer<typeof Schema>

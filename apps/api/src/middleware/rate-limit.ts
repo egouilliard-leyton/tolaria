@@ -17,21 +17,35 @@
 import type { MiddlewareHandler, Context } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { pool } from '../db.js'
+import { loadEnv } from '../env.js'
 import { clientIp as resolveClientIp } from '../lib/client-ip.js'
 import { RateLimited, Unauthenticated } from '../lib/errors.js'
 
 export interface RateLimitConfig {
-  bucket: 'auth' | 'ai' | 'search'
+  bucket: 'auth' | 'ai' | 'search' | 'admin'
   scope: 'ip' | 'user'
-  capacity: number      // burst size, in tokens
+  capacity?: number     // burst size, in tokens (preferred name)
+  /** Alias for `capacity`, matching the env-var naming convention. */
+  burst?: number
   refillRate: number    // tokens per second
 }
 
 // Default budgets. Exported so tests and ops can tune them without editing
-// every route.
-export const AUTH_RATE_LIMIT = { capacity: 10, refillRate: 0.5 } as const
-export const AI_RATE_LIMIT = { capacity: 20, refillRate: 0.05 } as const
-export const SEARCH_RATE_LIMIT = { capacity: 60, refillRate: 1 } as const
+// every route. Values come from env vars (see apps/api/src/env.ts) and fall
+// back to the historical hardcoded numbers if unset.
+const _env = loadEnv()
+export const AUTH_RATE_LIMIT = {
+  capacity: _env.AUTH_RATE_LIMIT_BURST,
+  refillRate: _env.AUTH_RATE_LIMIT_REFILL,
+} as const
+export const AI_RATE_LIMIT = {
+  capacity: _env.AI_RATE_LIMIT_BURST,
+  refillRate: _env.AI_RATE_LIMIT_REFILL,
+} as const
+export const SEARCH_RATE_LIMIT = {
+  capacity: _env.SEARCH_RATE_LIMIT_BURST,
+  refillRate: _env.SEARCH_RATE_LIMIT_REFILL,
+} as const
 
 interface BucketRow {
   allowed: boolean
@@ -46,14 +60,15 @@ interface BucketRow {
  * before this middleware — we throw `Unauthenticated` otherwise.
  */
 export function rateLimit(cfg: RateLimitConfig): MiddlewareHandler {
-  if (cfg.capacity <= 0 || cfg.refillRate <= 0) {
-    throw new Error('rateLimit: capacity and refillRate must be positive')
+  const capacity = cfg.capacity ?? cfg.burst
+  if (capacity === undefined || capacity <= 0 || cfg.refillRate <= 0) {
+    throw new Error('rateLimit: capacity/burst and refillRate must be positive')
   }
   return async (c, next) => {
     const key = deriveKey(cfg, c)
     const { allowed, remaining } = await consumeToken(
       key,
-      cfg.capacity,
+      capacity,
       cfg.refillRate,
     )
     if (!allowed) {
