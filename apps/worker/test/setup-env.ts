@@ -11,3 +11,8 @@ process.env.R2_SECRET_ACCESS_KEY ??= 'test-secret'
 process.env.R2_BUCKET ??= 'test-bucket'
 process.env.LITELLM_BASE_URL ??= 'http://litellm.test'
 process.env.LITELLM_TOKEN ??= 'test-litellm-token'
+// Embedding pipeline is opt-in. Default to disabled in tests; individual
+// tests that exercise the pipeline override the value via vi.stubEnv.
+process.env.LITELLM_EMBEDDING_MODEL ??= ''
+process.env.EMBEDDING_DIMS ??= '1536'
+process.env.EMBEDDING_BUDGET_CENTS_PER_TENANT_PER_DAY ??= '100'

@@ -8,6 +8,7 @@ import { handleR2Gc } from './handlers/r2-gc.js'
 import { handleAiToolRun } from './handlers/ai-tool-run.js'
 import { handleAuditLogPurge } from './handlers/audit-log-purge.js'
 import { handleRebuildVaultIndex } from './handlers/rebuild-vault-index.js'
+import { handleBackfillEmbeddings } from './handlers/backfill-embeddings.js'
 
 const env = loadEnv()
 const logger = pino({ level: env.LOG_LEVEL, base: { app: 'tolaria-worker' } })
@@ -68,6 +69,11 @@ async function main(): Promise<void> {
     await handleAuditLogPurge(job)
   })
 
+  await boss.work<unknown>('backfill-embeddings', workOptions, async ([job]) => {
+    if (!job) return
+    await handleBackfillEmbeddings(job)
+  })
+
   // Periodic sweep for abandoned uploads (ADR-0116 §4). The handler is
   // idempotent and reads the grace interval from
   // `R2_UNVERIFIED_GRACE_INTERVAL` (default '1 hour'). When invoked with
@@ -102,6 +108,7 @@ async function main(): Promise<void> {
         'ai-tool-run',
         'rebuild-vault-index',
         'audit-log-purge',
+        'backfill-embeddings',
       ],
     },
     'worker handlers registered',

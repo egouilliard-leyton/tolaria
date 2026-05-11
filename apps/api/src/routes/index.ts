@@ -19,6 +19,7 @@ import { ai } from './ai.js'
 import { aiAgent } from './ai-agent.js'
 import { ssoAdmin } from './admin/sso.js'
 import { usersAdmin } from './admin/users.js'
+import { vaultsAdmin } from './admin/vaults.js'
 
 export function buildAppRoutes(): Hono {
   const app = new Hono()
@@ -46,6 +47,7 @@ export function buildAppRoutes(): Hono {
   authed.route('/', aiAgent)
   authed.route('/admin/sso', ssoAdmin)
   authed.route('/admin/users', usersAdmin)
+  authed.route('/admin/vaults', vaultsAdmin)
 
   app.route('/', authed)
   return app
